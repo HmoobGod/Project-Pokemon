@@ -49,7 +49,12 @@ test('preflight is read-only, does not expose raw profile and ignores other-edit
   assert.equal(result.slots.backup,'valid');
   assert.equal(result.slots.preUndo,'missing');
   assert.equal(result.restores.backup,'ready');
-  assert.equal(Object.hasOwn(result,'raw'),false);
+  const serialized = JSON.stringify(result);
+  assert.deepEqual(Object.keys(result).sort(), ['restores','slots']);
+  for (const raw of s.values.values()) {
+    assert.ok(!serialized.includes(raw), 'preflight leaked raw saved-game content');
+  }
+  assert.ok(!serialized.includes('stardust') && !serialized.includes('schema'));
   assert.deepEqual(s.values,before);
   assert.equal(s.writes,writes);
   assert.equal(s.getItem('pokebonk.local.profile.v1'),'unlocked-edition');
