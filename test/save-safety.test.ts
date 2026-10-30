@@ -125,3 +125,93 @@ test('unrecognized counter keys are rejected from persisted saves',()=>{
   store.setItem(p.key,JSON.stringify(s));
   assert.throws(()=>start(store),/Unsupported counter/);
 });
+
+test('B1: recovery rejects a healthy primary without overwriting it',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const primary=store.getItem(p.key),backup=store.getItem(p.backupKey);
+  assert.notEqual(primary,backup);
+  assert.throws(()=>StandardProgression.recoverCorruptPrimary(store,catalog),/Primary is valid; refusing recovery/);
+  assert.equal(store.getItem(p.key),primary);
+  assert.equal(store.getItem(p.backupKey),backup);
+});
+
+test('B1: restoreBackup preserves current primary in a durable pre-restore slot',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const current=p.snapshot(),original=store.getItem(p.key);
+  const priorBackup=store.getItem(p.backupKey);
+  assert.notEqual(original,priorBackup);
+  p.restoreBackup();
+  assert.equal(store.getItem(p.preRestoreKey),original);
+  assert.deepEqual(p.restorePreRestore(),current);
+  assert.equal(store.getItem(p.preRestoreKey),original);
+});
+
+test('B2: replacing save then taking action preserves original pre-import snapshot',async()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const original=p.snapshot(),oldRaw=store.getItem(p.key);
+  const source=start();source.chooseStarter(7);
+  await p.importSave(await source.exportSave(),{replace:true});
+  assert.equal(store.getItem(p.preImportKey),oldRaw);
+  p.beginRun('forest');
+  assert.equal(store.getItem(p.preImportKey),oldRaw);
+  assert.deepEqual(p.restorePreImport(),original);
+  assert.ok(store.getItem(p.preRestoreKey));
+});
+
+test('B2: a second replacement cannot silently destroy existing pre-import recovery',async()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const source=start();source.chooseStarter(7);
+  const json=await source.exportSave();
+  await p.importSave(json,{replace:true});
+  const preImport=store.getItem(p.preImportKey);
+  p.beginRun('forest');
+  const before=store.getItem(p.key);
+  await assert.rejects(p.importSave(json,{replace:true}),/Pre-import recovery exists/);
+  assert.equal(store.getItem(p.key),before);
+  assert.equal(store.getItem(p.preImportKey),preImport);
+});
+
+test('B2: clearing preserved import backup is explicit',async()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const source=start();source.chooseStarter(7);
+  await p.importSave(await source.exportSave(),{replace:true});
+  assert.ok(store.getItem(p.preImportKey));
+  p.clearPreImportBackup();
+  assert.equal(store.getItem(p.preImportKey),null);
+  assert.throws(()=>p.restorePreImport(),/No pre-import/);
+});
+
+test('N1: orphaned rotating backup blocks a new profile and stays recoverable',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const oldBackup=store.getItem(p.backupKey);
+  store.removeItem(p.key);
+  assert.throws(()=>start(store),/Primary missing; backup available/);
+  assert.equal(store.getItem(p.backupKey),oldBackup);
+  const recovered=StandardProgression.recoverCorruptPrimary(store,catalog);
+  assert.deepEqual(recovered,parseSave(oldBackup!,catalog.sourceVersion));
+});
+
+test('B1: corrupt primary can still be explicitly recovered while incompatible version is preserved',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const backup=store.getItem(p.backupKey);
+  store.setItem(p.key,'not-json');
+  StandardProgression.recoverCorruptPrimary(store,catalog);
+  assert.equal(store.getItem(p.key),backup);
+  store.setItem(p.key,JSON.stringify({...p.snapshot(),sourceVersion:'future-v2'}));
+  assert.throws(()=>StandardProgression.recoverCorruptPrimary(store,catalog),/another game version/);
+  assert.equal(JSON.parse(store.getItem(p.key)!).sourceVersion,'future-v2');
+});
+
+test('B1/B2: storage quota failure during pre-restore or pre-import keeps primary intact',async()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const original=store.getItem(p.key),memory=p.snapshot();
+  store.failKey=p.preRestoreKey;
+  assert.throws(()=>p.restoreBackup(),/Storage write failed/);
+  assert.equal(store.getItem(p.key),original);
+  assert.deepEqual(p.snapshot(),memory);
+  const source=start();source.chooseStarter(7);
+  store.failKey=p.preImportKey;
+  await assert.rejects(p.importSave(await source.exportSave(),{replace:true}),/Storage write failed/);
+  assert.equal(store.getItem(p.key),original);
+  assert.deepEqual(p.snapshot(),memory);
+});

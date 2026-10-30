@@ -174,6 +174,10 @@ export function parseSave(raw: string, expectedVersion: string): SaveState {
 export class StandardProgression {
   readonly key = 'pokebonk.standard.profile.v1';
   readonly backupKey = 'pokebonk.standard.profile.backup.v1';
+  /** Durable pre-import snapshot: normal commits NEVER rotate this slot. */
+  readonly preImportKey = 'pokebonk.standard.profile.preimport.v1';
+  /** Previous valid primary before a user-initiated restore. */
+  readonly preRestoreKey = 'pokebonk.standard.profile.prerestore.v1';
   private state: SaveState;
   private readonly storage: StorageLike;
   private readonly catalog: Catalog;
@@ -184,6 +188,8 @@ export class StandardProgression {
     this.storage = storage; this.catalog = catalog; this.policy = policy; this.idFactory = idFactory;
     validateCatalog(catalog);
     const raw = storage.getItem(this.key);
+    if (raw === null && storage.getItem(this.backupKey) !== null)
+      throw new ProgressionError('Primary missing; backup available. Recover before starting new progress');
     this.state = raw === null ? freshState(catalog.sourceVersion) : parseSave(raw,catalog.sourceVersion);
     validateStateAgainstCatalog(this.state,catalog);
     this.persistedRaw = raw;
@@ -222,18 +228,33 @@ export class StandardProgression {
     if ((existing !== null || this.state.starter !== null) && !options.replace)
       throw new ProgressionError('Existing progress requires explicit replace option');
     this.requireFreshWriter();
-    // Mutation and backup happen only after complete verification.
+    // A replacement cannot silently discard a previous pre-import snapshot.
+    // If a prior import was interrupted, retrying the SAME primary is safe.
+    const savedPreImport = this.storage.getItem(this.preImportKey);
+    if (existing !== null && savedPreImport !== null && savedPreImport !== existing)
+      throw new ProgressionError('Pre-import recovery exists; restore or explicitly clear it before importing again');
+    // Preserve the pre-import profile independently from the rotating backup.
+    // Keeping this slot after future runs protects against accidental imports.
+    if (existing !== null && savedPreImport === null) {
+      validateStateAgainstCatalog(parseSave(existing,this.catalog.sourceVersion),this.catalog);
+      this.storage.setItem(this.preImportKey,existing);
+    }
     return this.commit(state => {Object.assign(state, imported);});
   }
   private commit(change: (next: SaveState) => void): SaveState {
-    this.requireFreshWriter();
+    const previous = this.storage.getItem(this.key);
+    if (previous !== this.persistedRaw)
+      throw new ProgressionError('Save changed in another session; reopen before writing');
     const next = this.snapshot();
     change(next);
     const serialized = JSON.stringify(next);
     validateStateAgainstCatalog(parseSave(serialized,this.catalog.sourceVersion),this.catalog);
-    const previous = this.storage.getItem(this.key);
+    // Re-check the captured raw value before writing, narrowing (not eliminating)
+    // the non-atomic localStorage race between validation and mutation.
+    if (this.storage.getItem(this.key) !== previous)
+      throw new ProgressionError('Save changed in another session; reopen before writing');
     if (previous !== null) {
-      parseSave(previous,this.catalog.sourceVersion); // Never back up an invalid primary.
+      validateStateAgainstCatalog(parseSave(previous,this.catalog.sourceVersion),this.catalog);
       this.storage.setItem(this.backupKey,previous);
     }
     this.storage.setItem(this.key,serialized);
@@ -312,25 +333,74 @@ export class StandardProgression {
     if ((this.state.counters[a.counter]??0)<a.goal) throw new ProgressionError('Achievement not earned');
     return this.commit(s=>{s.questsClaimed.push(id);s.stardust=add(s.stardust,a.reward);s.totalStardust=add(s.totalStardust,a.reward);});
   }
-  /** Recovery is a deliberate choice, never a silent overwrite of the primary. */
+  /** Recover a missing/corrupt primary only. Never silently downgrade healthy progress. */
   static recoverCorruptPrimary(storage: StorageLike, catalog: Catalog): SaveState {
     validateCatalog(catalog);
-    const raw=storage.getItem('pokebonk.standard.profile.backup.v1');
-    if (raw===null) throw new ProgressionError('No backup available');
-    const recovered=parseSave(raw,catalog.sourceVersion);
+    const key = 'pokebonk.standard.profile.v1';
+    const primary = storage.getItem(key);
+    if (primary !== null) {
+      // Incompatible-version data must not be overwritten as though corrupt.
+      try {
+        const data: unknown = JSON.parse(primary);
+        if (isRecord(data) && typeof data.sourceVersion === 'string' && data.sourceVersion !== catalog.sourceVersion)
+          throw new ProgressionError('Primary belongs to another game version; refusing recovery');
+      } catch (error) {
+        if (error instanceof ProgressionError) throw error;
+        // Invalid JSON is a corrupt primary and can be recovered.
+      }
+      let valid = false;
+      try {
+        validateStateAgainstCatalog(parseSave(primary,catalog.sourceVersion),catalog);
+        valid = true;
+      } catch {
+        // The damaged primary is not a validated profile.
+      }
+      if (valid) throw new ProgressionError('Primary is valid; refusing recovery');
+    }
+    const raw = storage.getItem('pokebonk.standard.profile.backup.v1');
+    if (raw === null) throw new ProgressionError('No backup available');
+    const recovered = parseSave(raw,catalog.sourceVersion);
     validateStateAgainstCatalog(recovered,catalog);
-    storage.setItem('pokebonk.standard.profile.v1',raw);
+    storage.setItem(key,raw);
     return jsonCopy(recovered);
   }
-  restoreBackup(): SaveState {
+  /** Preserve the current healthy primary in its OWN slot before restoring. */
+  private restoreFrom(raw: string, preserveCurrent: boolean): SaveState {
     this.requireFreshWriter();
-    const raw=this.storage.getItem(this.backupKey);
-    if (raw===null) throw new ProgressionError('No backup available');
-    const next=parseSave(raw,this.catalog.sourceVersion);
+    const next = parseSave(raw,this.catalog.sourceVersion);
     validateStateAgainstCatalog(next,this.catalog);
+    const current = this.storage.getItem(this.key);
+    if (current !== this.persistedRaw)
+      throw new ProgressionError('Save changed in another session; reopen before writing');
+    if (preserveCurrent && current !== null) {
+      validateStateAgainstCatalog(parseSave(current,this.catalog.sourceVersion),this.catalog);
+      this.storage.setItem(this.preRestoreKey,current);
+    }
     this.storage.setItem(this.key,raw);
-    this.persistedRaw=raw;
-    this.state=next;
+    this.persistedRaw = raw;
+    this.state = next;
     return this.snapshot();
+  }
+  restoreBackup(): SaveState {
+    const raw = this.storage.getItem(this.backupKey);
+    if (raw === null) throw new ProgressionError('No backup available');
+    return this.restoreFrom(raw,true);
+  }
+  /** Recovers the state before an import, even after subsequent gameplay. */
+  restorePreImport(): SaveState {
+    const raw = this.storage.getItem(this.preImportKey);
+    if (raw === null) throw new ProgressionError('No pre-import recovery available');
+    return this.restoreFrom(raw,true);
+  }
+  /** Undo the most recent recovery. Keep the slot intact for repeat recovery. */
+  restorePreRestore(): SaveState {
+    const raw = this.storage.getItem(this.preRestoreKey);
+    if (raw === null) throw new ProgressionError('No pre-restore recovery available');
+    return this.restoreFrom(raw,false);
+  }
+  /** Clearing durable pre-import recovery requires an explicit user choice. */
+  clearPreImportBackup(): void {
+    this.requireFreshWriter();
+    this.storage.removeItem(this.preImportKey);
   }
 }

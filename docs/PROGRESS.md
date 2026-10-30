@@ -1,6 +1,6 @@
 # Project Pokemon — Development Progress
 
-**Last local verified source milestone:** v0.4, October 30, 2026 (America/Chicago).  
+**Last local verified source milestone:** v0.4.1, October 30, 2026 (America/Chicago).  
 **Target:** fully offline Android game preserving earned progression, not unlock-all.
 
 ```text
@@ -16,7 +16,7 @@ Content permissions ░░░░░░░░░░░░░░░░░░░░
 
 ## Verified local milestones
 
-- v0.4: **36/36 local automated tests** and strict TypeScript pass.
+- v0.4.1: **44/44 local automated tests** and strict TypeScript pass.
 - Manual export/import format: tagged, pinned-version JSON with SHA-256 integrity check; overwrite requires explicit opt-in.
 - Validated imported item/upgrade/counter/roster IDs; stale writer detection and storage-write failure protections.
 - v0.3: audited 40 client League character definitions (including four compound objectives). No actual unlock entitlement granted.
@@ -32,9 +32,17 @@ Content permissions ░░░░░░░░░░░░░░░░░░░░
 
 ## Next steps
 
-- Obtain exact-head GitHub CI pass and merge PR #1 when green.
+- Obtain exact-head GitHub CI pass **and Claude re-approval** before merging PR #1.
 - Audit original server-visible reward and profile contracts; leave unknown rules inactive.
 - Create authorized client adapter; validate starter → run → earned Stardust → purchase → save/reload.
 - Integrate import/export UI and isolate Standard Android package identity, then build and test APK when rights allow.
 
 **All percentages are subjective engineering estimates; update them as real gates pass.**
+
+## v0.4.1 review gate (October 30, 2026)
+
+- Claude independently requested changes on v0.4 commit `6e9fae0` for two verified recovery data-loss defects.
+- B1 and B2 have targeted local fixes and eight new tests (44/44 total).
+- Source-only overall completion stays **14% estimated**: save correctness improved, no new gameplay integration.
+- PR #1 MUST remain open until new exact-head GitHub CI succeeds and Claude delta review approves.
+- Full game rewards and unlocks, original assets/permissions, Android build and device tests remain blockers.
