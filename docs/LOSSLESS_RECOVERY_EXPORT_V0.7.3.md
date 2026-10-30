@@ -1,6 +1,6 @@
 # v0.7.3 — Lossless emergency recovery export (source-only)
 
-**Branch:** `feature/v0.7.3-lossless-recovery-export`, stacked on the unmerged v0.7.2 PR #6 head `3c34aadf40554b2f598d9d756b7cfe3d828aa705`. Merge v0.7.2 only after its independent review, and rebase this branch before any final merge into `main`.
+**Branch:** `feature/v0.7.3-lossless-recovery-export`, now rebased onto merged v0.7.2 main `7331f4efbfa932c398b57b5024a318aad661f374`. PR #6's former reviewed head was `3c34aadf40554b2f598d9d756b7cfe3d828aa705` (Claude APPROVE / MERGE YES). PR #7 remains unmerged pending its own exact-head CI and independent Claude review.
 
 ## Why
 A primary profile may be corrupt or use a future/unknown schema. The standard constructor deliberately refuses it; users still need a way to preserve all Standard-profile data before any explicit recovery, migration, or discard. A raw bundle must not parse, repair, normalize or delete any save content.
