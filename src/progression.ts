@@ -50,6 +50,22 @@ export interface SaveState {
 }
 export class ProgressionError extends Error {}
 
+/** Export is portable JSON with a SHA-256 integrity checksum, NOT a digital signature. */
+export interface SaveExportEnvelope {
+  kind: 'project-pokemon.standard.export';
+  schema: 1;
+  sourceVersion: string;
+  sha256: string;
+  payload: string;
+}
+
+const unsafeKey = (key: string): boolean => ['__proto__','prototype','constructor'].includes(key);
+const sha256Hex = async (message: string): Promise<string> => {
+  const bytes = new TextEncoder().encode(message);
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+  return [...hash].map(byte => byte.toString(16).padStart(2,'0')).join('');
+};
+
 const isRecord = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const asInteger = (v: unknown, name: string): number => {
   if (!Number.isSafeInteger(v) || (v as number) < 0) throw new ProgressionError(`Invalid non-negative integer: ${name}`);
@@ -63,7 +79,7 @@ const listOf = (v: unknown, parse: (item: unknown) => void, name: string): void 
   for (const item of v) parse(item);
 };
 const nonemptyString = (v: unknown, name: string): string => {
-  if (typeof v !== 'string' || !v.length) throw new ProgressionError(`Invalid string: ${name}`);
+  if (typeof v !== 'string' || !v.length || unsafeKey(v)) throw new ProgressionError(`Invalid string: ${name}`);
   return v;
 };
 const safeCounters = (v: unknown, name: string): Record<string, number> => {
@@ -91,6 +107,33 @@ export function validateCatalog(c: Catalog): void {
   checkUnique(c.achievements.map(x=>x.id),'achievement id');checkUnique(c.maps.map(x=>x.id),'map id');checkUnique(c.counterKeys,'counter keys');
 }
 
+/** Reject wrong-edition, impossible catalog IDs, and out-of-range Lab levels. */
+export function validateStateAgainstCatalog(state: Readonly<SaveState>, catalog: Readonly<Catalog>): void {
+  const allowed = <T>(entries: readonly T[], value: T, label: string): void => {
+    if (!entries.includes(value)) throw new ProgressionError(`Unknown ${label} in save`);
+  };
+  if (state.starter !== null) {
+    allowed(catalog.starters, state.starter, 'starter');
+    if (!state.pokemonUnlocked.includes(state.starter)) throw new ProgressionError('Starter missing from unlocked roster');
+  } else if (state.pokemonUnlocked.length || state.processedRuns.length || state.pendingRuns.length) {
+    throw new ProgressionError('Progress exists before starter selection');
+  }
+  for (const id of state.pokemonUnlocked) allowed(catalog.pokemon,id,'Pokemon unlock');
+  for (const id of state.pokemonSeen) allowed(catalog.pokemon,id,'Pokemon sighting');
+  for (const key of state.itemsOwned) allowed(catalog.shop.map(i=>i.key),key,'shop item');
+  for (const id of state.questsClaimed) allowed(catalog.achievements.map(a=>a.id),id,'achievement');
+  for (const map of state.mapsWon) allowed(catalog.maps.map(m=>m.id),map,'map');
+  for (const run of state.pendingRuns) allowed(catalog.maps.map(m=>m.id),run.map,'pending map');
+  for (const [id,level] of Object.entries(state.lab)) {
+    const entry = catalog.lab.find(l => l.id === id);
+    if (!entry || level > entry.costByLevel.length) throw new ProgressionError('Invalid Lab level in save');
+  }
+  for (const key of Object.keys(state.counters)) {
+    if (key !== 'runs' && key !== 'wins' && !catalog.counterKeys.includes(key))
+      throw new ProgressionError('Unsupported counter in save');
+  }
+}
+
 export function freshState(sourceVersion: string): SaveState {
   return { schema: 1, sourceVersion, starter: null, stardust: 0, totalStardust: 0,
     pokemonUnlocked: [], pokemonSeen: [], lab: {}, itemsOwned: [], questsClaimed: [],
@@ -100,6 +143,8 @@ export function parseSave(raw: string, expectedVersion: string): SaveState {
   let data: unknown;
   try { data = JSON.parse(raw); } catch {throw new ProgressionError('Save JSON is corrupt; primary save left unchanged');}
   if (!isRecord(data) || data.schema !== 1 || data.sourceVersion !== expectedVersion) throw new ProgressionError('Incompatible save schema or game version');
+  const permittedFields = new Set(['schema','sourceVersion','starter','stardust','totalStardust','pokemonUnlocked','pokemonSeen','lab','itemsOwned','questsClaimed','counters','mapsWon','processedRuns','pendingRuns']);
+  if (Object.keys(data).some(key => !permittedFields.has(key))) throw new ProgressionError('Unsupported save field');
   if (data.starter !== null) asInteger(data.starter,'starter');
   asInteger(data.stardust,'stardust');asInteger(data.totalStardust,'totalStardust');
   for (const key of ['pokemonUnlocked','pokemonSeen'] as const) listOf(data[key],x=>{asInteger(x,key);},key);
@@ -134,24 +179,65 @@ export class StandardProgression {
   private readonly catalog: Catalog;
   private readonly policy: RewardPolicy;
   private readonly idFactory: () => string;
+  private persistedRaw: string | null;
   constructor(storage: StorageLike, catalog: Catalog, policy: RewardPolicy, idFactory: () => string = () => crypto.randomUUID()) {
     this.storage = storage; this.catalog = catalog; this.policy = policy; this.idFactory = idFactory;
     validateCatalog(catalog);
     const raw = storage.getItem(this.key);
     this.state = raw === null ? freshState(catalog.sourceVersion) : parseSave(raw,catalog.sourceVersion);
+    validateStateAgainstCatalog(this.state,catalog);
+    this.persistedRaw = raw;
   }
   snapshot(): SaveState { return jsonCopy(this.state); }
+  private requireFreshWriter(): void {
+    if (this.storage.getItem(this.key) !== this.persistedRaw)
+      throw new ProgressionError('Save changed in another session; reopen before writing');
+  }
+  /** Portable manual backup, deliberately not the browser's internal backup slot. */
+  async exportSave(): Promise<string> {
+    this.requireFreshWriter();
+    const payload = JSON.stringify(this.state);
+    const envelope: SaveExportEnvelope = {
+      kind: 'project-pokemon.standard.export', schema: 1,
+      sourceVersion: this.catalog.sourceVersion,
+      sha256: await sha256Hex(payload), payload,
+    };
+    return JSON.stringify(envelope);
+  }
+  /** Import is opt-in. Replacing existing progress must be explicitly requested. */
+  async importSave(input: string, options: {replace?: boolean} = {}): Promise<SaveState> {
+    this.requireFreshWriter();
+    let json: unknown;
+    try {json = JSON.parse(input);} catch {throw new ProgressionError('Malformed save export JSON');}
+    if (!isRecord(json) || json.kind !== 'project-pokemon.standard.export' || json.schema !== 1 ||
+        json.sourceVersion !== this.catalog.sourceVersion || typeof json.payload !== 'string' ||
+        typeof json.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(json.sha256))
+      throw new ProgressionError('Wrong edition, schema, or source version');
+    if ((await sha256Hex(json.payload)) !== json.sha256)
+      throw new ProgressionError('Save export integrity check failed');
+    const imported = parseSave(json.payload,this.catalog.sourceVersion);
+    validateStateAgainstCatalog(imported,this.catalog);
+    // Do not silently replace either a freshly created in-memory profile or saved progress.
+    const existing = this.storage.getItem(this.key);
+    if ((existing !== null || this.state.starter !== null) && !options.replace)
+      throw new ProgressionError('Existing progress requires explicit replace option');
+    this.requireFreshWriter();
+    // Mutation and backup happen only after complete verification.
+    return this.commit(state => {Object.assign(state, imported);});
+  }
   private commit(change: (next: SaveState) => void): SaveState {
+    this.requireFreshWriter();
     const next = this.snapshot();
     change(next);
     const serialized = JSON.stringify(next);
-    parseSave(serialized,this.catalog.sourceVersion);
+    validateStateAgainstCatalog(parseSave(serialized,this.catalog.sourceVersion),this.catalog);
     const previous = this.storage.getItem(this.key);
     if (previous !== null) {
       parseSave(previous,this.catalog.sourceVersion); // Never back up an invalid primary.
       this.storage.setItem(this.backupKey,previous);
     }
     this.storage.setItem(this.key,serialized);
+    this.persistedRaw = serialized;
     this.state = next;
     return this.snapshot();
   }
@@ -178,6 +264,7 @@ export class StandardProgression {
     safeCounters(report.counters,'report counters');
     for (const key of Object.keys(report.counters)) if (!this.catalog.counterKeys.includes(key)) throw new ProgressionError('Unknown or reserved run counter');
     const seen=report.seen??[],captures=report.captures??[];
+    if (!Array.isArray(seen) || !Array.isArray(captures)) throw new ProgressionError('Invalid run species list');
     for(const id of [...seen,...captures]) if (!this.catalog.pokemon.includes(id)) throw new ProgressionError('Unknown Pokemon in run report');
     const earned=asInteger(this.policy.calculateRunStardust(jsonCopy(report),ticket.map),'run reward');
     const state=this.commit(s=>{
@@ -231,14 +318,18 @@ export class StandardProgression {
     const raw=storage.getItem('pokebonk.standard.profile.backup.v1');
     if (raw===null) throw new ProgressionError('No backup available');
     const recovered=parseSave(raw,catalog.sourceVersion);
+    validateStateAgainstCatalog(recovered,catalog);
     storage.setItem('pokebonk.standard.profile.v1',raw);
     return jsonCopy(recovered);
   }
   restoreBackup(): SaveState {
+    this.requireFreshWriter();
     const raw=this.storage.getItem(this.backupKey);
     if (raw===null) throw new ProgressionError('No backup available');
     const next=parseSave(raw,this.catalog.sourceVersion);
+    validateStateAgainstCatalog(next,this.catalog);
     this.storage.setItem(this.key,raw);
+    this.persistedRaw=raw;
     this.state=next;
     return this.snapshot();
   }
