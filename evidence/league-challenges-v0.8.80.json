@@ -1,0 +1,510 @@
+{
+  "source": "PokéBonk 0.8.80 publicly served client configuration",
+  "upstreamBuild": "mvur4p6p",
+  "configSha256": "ee80917af414bf62aa37f40176c6b3fb13063da979d1c192a54b960adb7e9431",
+  "representation": "factual IDs and numeric client objectives only; server entitlement NOT verified",
+  "ruleCount": 40,
+  "compoundRuleCount": 4,
+  "notes": [
+    "Original client lists 40 League character definitions but id 151 has league counter goal 78; meaning unresolved",
+    "Client objectives are not authoritative server unlock conditions"
+  ],
+  "rules": [
+    {
+      "id": 1,
+      "starter": true,
+      "conditions": [
+        {
+          "counter": "runs",
+          "goal": 2
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 4,
+      "starter": true,
+      "conditions": [
+        {
+          "counter": "runs",
+          "goal": 2
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 7,
+      "starter": true,
+      "conditions": [
+        {
+          "counter": "runs",
+          "goal": 2
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 10,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "evolutions",
+          "goal": 3
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 13,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "kills",
+          "goal": 5000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 16,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "runs",
+          "goal": 4
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 19,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "kills",
+          "goal": 20000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 21,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "crits",
+          "goal": 30000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 23,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "paralyzed",
+          "goal": 2500
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 25,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "rainKills",
+          "goal": 10000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 27,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "dodges",
+          "goal": 120
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 29,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "healed",
+          "goal": 6000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 32,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "alphas",
+          "goal": 6
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 35,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "ultimates",
+          "goal": 80
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 37,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "burned",
+          "goal": 6000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 39,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "slept",
+          "goal": 1500
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 41,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "best_healed",
+          "goal": 4000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 43,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "poisoned",
+          "goal": 4000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 46,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "paralyzed",
+          "goal": 6000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 48,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "confused",
+          "goal": 1500
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 50,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "rocks",
+          "goal": 15
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 52,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "gold",
+          "goal": 8000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 54,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "soaked",
+          "goal": 3000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 56,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "bosses",
+          "goal": 10
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 58,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "runs",
+          "goal": 20
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 60,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "slept",
+          "goal": 4000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 63,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "maxLevel",
+          "goal": 30
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 66,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "alphas",
+          "goal": 20
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 69,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "maxLevel",
+          "goal": 20
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 72,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "best_poisoned",
+          "goal": 2500
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 74,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "rocks",
+          "goal": 50
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 92,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "best_reactions",
+          "goal": 600
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 104,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "boss_desert",
+          "goal": 4
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 123,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "kills",
+          "goal": 150000
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 129,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "runs",
+          "goal": 25
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 131,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "league",
+          "goal": 30
+        },
+        {
+          "counter": "evolutions",
+          "goal": 20
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 133,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "league",
+          "goal": 15
+        },
+        {
+          "counter": "speciesPlayed",
+          "goal": 10
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 143,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "league",
+          "goal": 30
+        },
+        {
+          "counter": "berries",
+          "goal": 500
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 147,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "league",
+          "goal": 40
+        },
+        {
+          "counter": "legendaries",
+          "goal": 3
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    },
+    {
+      "id": 151,
+      "starter": false,
+      "conditions": [
+        {
+          "counter": "league",
+          "goal": 78
+        }
+      ],
+      "logic": "all",
+      "status": "client-objectives-only"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+# Build and runtime caches
+node_modules/
+dist/
+build/
+release/
+cache/
+coverage/
+*.tsbuildinfo
+*.apk
+*.aab
+# Third-party captures or assets (keep out of public repository)
+vendor/
+assets/
+upstream/
+client-catalog.json
+client-catalog-byte-verified.json
+# Local artifacts
+.DS_Store
+*.log
