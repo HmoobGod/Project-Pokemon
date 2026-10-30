@@ -2,7 +2,14 @@
 
 A **source-only, experimental** Android game-port research project targeting an *earned-progression* experience. The immediate milestone is a tested, isolated local progression core. **There is no playable APK here yet.**
 
-## Current milestone: v0.4.2 (source-only recovery hotfix)
+## Current milestone: v0.5 (unmerged source prototype)
+
+- Added cycle-checked map prerequisite chains and stricter imported map victory validation.
+- Defensive bound of 128 pending run tickets and strict serialized ticket field checks.
+- Forward run mode to reward policy without guessing original-game rewards.
+- [v0.5 guard details](docs/PROGRESSION_GUARDS_V0.5.md) · [Claude review request](docs/CLAUDE_REVIEW_V0.5.md).
+
+## Previous milestone: v0.4.2 (source-only recovery hotfix)
 
 - New save data starts with zero Stardust; starters are selected normally.
 - Earned rewards, Lab/item purchases, achievement claims, and backup recovery are implemented and tested **with synthetic fixtures**.
@@ -22,10 +29,10 @@ A **source-only, experimental** Android game-port research project targeting an 
 - Explicit manual JSON save export/import with version and edition tagging and SHA-256 integrity checking (not anti-cheat protection).
 - Import requires an explicit overwrite option, validates catalog ownership, Lab levels and counters, and retains a recovery slot.
 - Best-effort stale-session write guard rejects detected second-session conflicts. It is not a transactional database.
-- **51/51 local tests** and strict TypeScript checks pass on CI-pinned local tool versions; GitHub Actions verification for the new hotfix head is pending.
+- **58/58 local tests** and strict TypeScript checks pass on the v0.5 source branch; v0.4.2 was already approved and merged.
 - [Save integrity research](docs/SAVE_INTEGRITY_V0.4.md) · [Progress dashboard](docs/PROGRESS.md).
 - [Claude independent v0.4 review](docs/CLAUDE_REVIEW_REQUEST_V0.4.md) returned **REQUEST CHANGES** (B1/B2).
-- **v0.4.1:** Fixed both recovery data-loss blockers with durable pre-import and pre-restore slots. [Fix documentation](docs/RECOVERY_FIXES_V0.4.1.md) · [Claude delta review request](docs/CLAUDE_DELTA_REVIEW_V0.4.1.md). Merge still gated on new exact-head CI and a fresh Claude review.
+- **v0.4.1:** Fixed both recovery data-loss blockers with durable pre-import and pre-restore slots. [Fix documentation](docs/RECOVERY_FIXES_V0.4.1.md) · [Claude delta review request](docs/CLAUDE_DELTA_REVIEW_V0.4.1.md). v0.4.1 was superseded by the reviewed and merged v0.4.2 fix.
 
 ## v0.4.2 recovery safety patch
 
@@ -33,7 +40,7 @@ A **source-only, experimental** Android game-port research project targeting an 
 - Repeating a restore to the already-active save now performs **zero writes**; a different restore is refused if it would destroy a protected undo. Explicit clearing is required.
 - **N12:** future-schema saved progress cannot be mistaken for a corrupted current-version save.
 - [v0.4.2 repair evidence](docs/RECOVERY_FIXES_V0.4.2.md) · [Claude delta re-review instructions](docs/CLAUDE_DELTA_REVIEW_V0.4.2.md).
-- The PR remains **unmerged**, pending exact-head GitHub CI and Claude's verdict.
+- Claude approved v0.4.2 and PR #1 was merged to `main` as `5d97798c84147aacc4e32e66ebd691d9179bd0b9`.
 
 ## Develop / verify
 
