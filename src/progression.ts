@@ -130,7 +130,7 @@ export function validateStateAgainstCatalog(state: Readonly<SaveState>, catalog:
   if (state.starter !== null) {
     allowed(catalog.starters, state.starter, 'starter');
     if (!state.pokemonUnlocked.includes(state.starter)) throw new ProgressionError('Starter missing from unlocked roster');
-  } else if (state.pokemonUnlocked.length || state.processedRuns.length || state.pendingRuns.length) {
+  } else if (state.pokemonUnlocked.length || state.processedRuns.length || state.pendingRuns.length || state.mapsWon.length) {
     throw new ProgressionError('Progress exists before starter selection');
   }
   for (const id of state.pokemonUnlocked) allowed(catalog.pokemon,id,'Pokemon unlock');
@@ -143,7 +143,12 @@ export function validateStateAgainstCatalog(state: Readonly<SaveState>, catalog:
     if (prerequisite && !state.mapsWon.includes(prerequisite))
       throw new ProgressionError('Won map without prerequisite victory');
   }
-  for (const run of state.pendingRuns) allowed(catalog.maps.map(m=>m.id),run.map,'pending map');
+  for (const run of state.pendingRuns) {
+    allowed(catalog.maps.map(m=>m.id),run.map,'pending map');
+    const prerequisite = catalog.maps.find(m=>m.id===run.map)?.requiresWinOf;
+    if (prerequisite && !state.mapsWon.includes(prerequisite))
+      throw new ProgressionError('Pending run map is locked by prerequisite');
+  }
   for (const [id,level] of Object.entries(state.lab)) {
     const entry = catalog.lab.find(l => l.id === id);
     if (!entry || level > entry.costByLevel.length) throw new ProgressionError('Invalid Lab level in save');
@@ -202,6 +207,8 @@ export class StandardProgression {
   readonly preImportKey = 'pokebonk.standard.profile.preimport.v1';
   /** Previous valid primary before a user-initiated restore. */
   readonly preRestoreKey = 'pokebonk.standard.profile.prerestore.v1';
+  /** Durable raw rescue copy of a primary that cannot be validated under this build. */
+  readonly recoveryQuarantineKey = 'pokebonk.standard.profile.quarantine.v1';
   private state: SaveState;
   private readonly storage: StorageLike;
   private readonly catalog: Catalog;
@@ -304,6 +311,17 @@ export class StandardProgression {
     this.commit(s=>{s.pendingRuns.push(ticket);});
     return jsonCopy(ticket);
   }
+  /** Permanently consumes a pending ticket WITHOUT crediting a run, reward or achievement. */
+  abandonRun(ticketId: string): SaveState {
+    nonemptyString(ticketId,'run id');
+    if (!this.state.pendingRuns.some(ticket=>ticket.id===ticketId))
+      throw new ProgressionError('Unknown or already processed run ticket');
+    return this.commit(state => {
+      state.pendingRuns = state.pendingRuns.filter(ticket=>ticket.id!==ticketId);
+      // The consumed ID must not be credited/reused after a reload.
+      state.processedRuns.push(ticketId);
+    });
+  }
   finishRun(ticketId: string, report: RunReport): {state: SaveState; earned: number} {
     const ticket=this.state.pendingRuns.find(t=>t.id===ticketId);
     if (!ticket || this.state.processedRuns.includes(ticketId)) throw new ProgressionError('Unknown or already credited run');
@@ -359,40 +377,53 @@ export class StandardProgression {
     if ((this.state.counters[a.counter]??0)<a.goal) throw new ProgressionError('Achievement not earned');
     return this.commit(s=>{s.questsClaimed.push(id);s.stardust=add(s.stardust,a.reward);s.totalStardust=add(s.totalStardust,a.reward);});
   }
-  /** Recover a missing/corrupt primary only. Never silently downgrade healthy progress. */
+  /**
+   * Recover a missing or rejected primary only after validating the backup.
+   * Never discard even malformed primary bytes without a durable rescue copy.
+   * An unknown schema/version is never automatically downgraded.
+   */
   static recoverCorruptPrimary(storage: StorageLike, catalog: Catalog): SaveState {
     validateCatalog(catalog);
     const key = 'pokebonk.standard.profile.v1';
+    const backupKey = 'pokebonk.standard.profile.backup.v1';
+    const quarantineKey = 'pokebonk.standard.profile.quarantine.v1';
     const primary = storage.getItem(key);
     if (primary !== null) {
-      // Incompatible-version data must not be overwritten as though corrupt.
+      let data: unknown;
+      try { data = JSON.parse(primary); } catch { data = null; }
+      if (isRecord(data) && data.schema !== 1)
+        throw new ProgressionError('Primary has incompatible save schema; refusing recovery');
+      if (isRecord(data) && typeof data.sourceVersion === 'string' && data.sourceVersion !== catalog.sourceVersion)
+        throw new ProgressionError('Primary belongs to another game version; refusing recovery');
       try {
-        const data: unknown = JSON.parse(primary);
-        // A future-schema save might still be valid for a later app release.
-        // Never downgrade a readable profile with an unrecognized schema.
-        if (isRecord(data) && data.schema !== 1)
-          throw new ProgressionError('Primary has incompatible save schema; refusing recovery');
-        if (isRecord(data) && typeof data.sourceVersion === 'string' && data.sourceVersion !== catalog.sourceVersion)
-          throw new ProgressionError('Primary belongs to another game version; refusing recovery');
+        const parsed = parseSave(primary,catalog.sourceVersion);
+        validateStateAgainstCatalog(parsed,catalog);
+        throw new ProgressionError('Primary is valid; refusing recovery');
       } catch (error) {
-        if (error instanceof ProgressionError) throw error;
-        // Invalid JSON is a corrupt primary and can be recovered.
+        if (error instanceof ProgressionError && error.message==='Primary is valid; refusing recovery') throw error;
+        // The rejected raw primary must be preserved, even when the new client
+        // is stricter (e.g. old ticket counts or additional ticket fields).
       }
-      let valid = false;
-      try {
-        validateStateAgainstCatalog(parseSave(primary,catalog.sourceVersion),catalog);
-        valid = true;
-      } catch {
-        // The damaged primary is not a validated profile.
-      }
-      if (valid) throw new ProgressionError('Primary is valid; refusing recovery');
     }
-    const raw = storage.getItem('pokebonk.standard.profile.backup.v1');
+    const raw = storage.getItem(backupKey);
     if (raw === null) throw new ProgressionError('No backup available');
     const recovered = parseSave(raw,catalog.sourceVersion);
     validateStateAgainstCatalog(recovered,catalog);
+    if (primary !== null) {
+      const existing = storage.getItem(quarantineKey);
+      if (existing !== null && existing !== primary)
+        throw new ProgressionError('Quarantined recovery snapshot exists; export it before another recovery');
+      if (existing === null) storage.setItem(quarantineKey,primary);
+      // A different tab may have saved valid progress since the first read.
+      if (storage.getItem(key) !== primary)
+        throw new ProgressionError('Save changed in another session; refusing recovery');
+    }
     storage.setItem(key,raw);
     return jsonCopy(recovered);
+  }
+  /** The raw pre-recovery snapshot remains accessible for backup/migration. */
+  static exportQuarantinedPrimary(storage: StorageLike): string | null {
+    return storage.getItem('pokebonk.standard.profile.quarantine.v1');
   }
   /** Preserve the current healthy primary in its OWN slot before restoring. */
   private restoreFrom(raw: string, preserveCurrent: boolean): SaveState {

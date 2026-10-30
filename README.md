@@ -2,7 +2,15 @@
 
 A **source-only, experimental** Android game-port research project targeting an *earned-progression* experience. The immediate milestone is a tested, isolated local progression core. **There is no playable APK here yet.**
 
-## Current milestone: v0.5 (unmerged source prototype)
+## Current milestone: v0.6 (source-only review candidate)
+
+- v0.5 approved by Claude and merged as main `04c476d7c1d115c6054a5afc40e7477a53ad7784` after successful exact-head CI.
+- Recovery now quarantines newly invalid-but-readable raw profiles before falling back to a verified backup, rather than erasing old data.
+- Added `abandonRun()` to free run slots **without rewards**; save validation now rejects pending tickets for locked maps and map victories before choosing a starter.
+- **70/70 local automated tests** and strict TypeScript pass on Node 22.16.0 / tsc 5.8.3; independent review and exact-head CI still required.
+- [v0.6 changes and limitations](docs/RECOVERY_AND_RUN_LIFECYCLE_V0.6.md) · [Claude review request](docs/CLAUDE_REVIEW_V0.6.md).
+
+## Prior milestone: v0.5 (merged source prototype)
 
 - Added cycle-checked map prerequisite chains and stricter imported map victory validation.
 - Defensive bound of 128 pending run tickets and strict serialized ticket field checks.
@@ -29,7 +37,7 @@ A **source-only, experimental** Android game-port research project targeting an 
 - Explicit manual JSON save export/import with version and edition tagging and SHA-256 integrity checking (not anti-cheat protection).
 - Import requires an explicit overwrite option, validates catalog ownership, Lab levels and counters, and retains a recovery slot.
 - Best-effort stale-session write guard rejects detected second-session conflicts. It is not a transactional database.
-- **58/58 local tests** and strict TypeScript checks pass on the v0.5 source branch; v0.4.2 was already approved and merged.
+- **70/70 local tests** and strict TypeScript checks pass on the v0.6 source branch; v0.5 was approved and merged.
 - [Save integrity research](docs/SAVE_INTEGRITY_V0.4.md) · [Progress dashboard](docs/PROGRESS.md).
 - [Claude independent v0.4 review](docs/CLAUDE_REVIEW_REQUEST_V0.4.md) returned **REQUEST CHANGES** (B1/B2).
 - **v0.4.1:** Fixed both recovery data-loss blockers with durable pre-import and pre-restore slots. [Fix documentation](docs/RECOVERY_FIXES_V0.4.1.md) · [Claude delta review request](docs/CLAUDE_DELTA_REVIEW_V0.4.1.md). v0.4.1 was superseded by the reviewed and merged v0.4.2 fix.
