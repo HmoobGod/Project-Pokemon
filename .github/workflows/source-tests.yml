@@ -1,0 +1,39 @@
+name: Source-only validation
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install pinned TypeScript CLI
+        run: npm install --global typescript@5.8.3
+      - name: Check no third-party game bundles were committed
+        shell: bash
+        run: |
+          set -euo pipefail
+          for path in vendor assets upstream build/game; do
+            if [[ -e "$path" ]]; then
+              echo "Unexpected bundled game data: $path" >&2
+              exit 1
+            fi
+          done
+          if git ls-files | grep -E '\.(apk|aab|glb|ogg|png|jpg|jpeg|webp)$'; then
+            echo 'Unexpected binary game or distribution content' >&2
+            exit 1
+          fi
+      - name: Progression and catalog tests
+        run: npm run test
+      - name: TypeScript strict typecheck
+        run: npm run typecheck

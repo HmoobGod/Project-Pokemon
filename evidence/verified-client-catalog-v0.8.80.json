@@ -1,0 +1,52 @@
+{
+  "upstream": "Charcher PokéBonk",
+  "origin": "https://pokebonk.com",
+  "clientVersion": "0.8.80",
+  "buildId": "mvur4p6p",
+  "snapshotManifestSha256": "5a851d03b9b79a3f1808a0a9aba9cc703e804c241882be5b6ac74699975fcc0d",
+  "configSha256": "ee80917af414bf62aa37f40176c6b3fb13063da979d1c192a54b960adb7e9431",
+  "upstreamSnapshot": {
+    "fileCount": 3021,
+    "bytes": 93569796,
+    "kantoIds": "1-151",
+    "manifestResourceCoverage": {
+      "normalAnimatedSprites": 151,
+      "shinyAnimatedSprites": 151,
+      "portraits": 151,
+      "icons": 151,
+      "cries": 151
+    },
+    "validationLevel": "Inventory filename and metadata inspection; no physical device decoding"
+  },
+  "clientCatalog": {
+    "starterIds": [1, 4, 7],
+    "leagueCharacterDefinitionCount": 40,
+    "labUpgradeDefinitionCount": 24,
+    "shopEntryCount": 59,
+    "achievementDefinitionCount": 71,
+    "priceExamples": {
+      "lab_slot_move_level_1": 1275,
+      "lab_slot_vit_level_1": 1020,
+      "lab_slot_vit_level_2": 2550,
+      "lab_reroll_level_prices": [100,145,200,280,390,550],
+      "shop_soda_pop": 150,
+      "shop_tm_case": 3200
+    },
+    "achievementExamples": {
+      "k100": {"counter":"kills", "goal":100, "stardustReward":50},
+      "k1000": {"counter":"kills", "goal":1000, "stardustReward":150},
+      "cap1": {"counter":"captures", "goal":1, "stardustReward":100},
+      "win1": {"counter":"wins", "goal":1, "stardustReward":200}
+    },
+    "scope": "Verified client catalog definitions, NOT verified server responses or eligibility"
+  },
+  "unknownOrUnimplemented": [
+    "server run Stardust formula and earning caps",
+    "all League unlock challenge and research semantics",
+    "achievement claims and rewards beyond numeric client catalog",
+    "map/difficulty progression and medals",
+    "commissions, season, events and purchase finalization",
+    "original gameplay integration and Android WebView acceptance"
+  ],
+  "rights": "Original game assets not included or licensed by this evidence file"
+}
