@@ -2,6 +2,21 @@
 
 A **source-only, experimental** Android game-port research project targeting an *earned-progression* experience. The immediate milestone is a tested, isolated local progression core. **There is no playable APK here yet.**
 
+## Progress dashboard (estimated)
+
+```text
+Overall APK completion   ██░░░░░░░░░░░░░░░░░░  10%
+Source / CI              ███████████░░░░░░░░░  55%
+Progression engine       ██████░░░░░░░░░░░░░░  30%
+Original rules verified  ████░░░░░░░░░░░░░░░░  20%
+Gameplay integration     ░░░░░░░░░░░░░░░░░░░░   0%
+Android build            ░░░░░░░░░░░░░░░░░░░░   0%
+Device tests             ░░░░░░░░░░░░░░░░░░░░   0%
+Rights clearance         ░░░░░░░░░░░░░░░░░░░░   0%
+```
+
+These are rough development estimates, **not** validated APK-completion measurements. Latest verified milestone: **v0.2 local 17/17 tests**, with GitHub CI still pending at this dashboard update. See [full progress, blockers and next priorities](docs/PROGRESS.md). **No playable APK yet.**
+
 ## Current milestone: v0.2 (prototype)
 
 - New save data starts with zero Stardust; starters are selected normally.
