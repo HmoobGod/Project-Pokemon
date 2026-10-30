@@ -207,6 +207,8 @@ export class StandardProgression {
   readonly preImportKey = 'pokebonk.standard.profile.preimport.v1';
   /** Previous valid primary before a user-initiated restore. */
   readonly preRestoreKey = 'pokebonk.standard.profile.prerestore.v1';
+  /** Progress made after a restore, saved before an explicit undo. */
+  readonly preUndoKey = 'pokebonk.standard.profile.preundo.v1';
   /** Durable raw rescue copy of a primary that cannot be validated under this build. */
   readonly recoveryQuarantineKey = 'pokebonk.standard.profile.quarantine.v1';
   private state: SaveState;
@@ -413,10 +415,19 @@ export class StandardProgression {
       const existing = storage.getItem(quarantineKey);
       if (existing !== null && existing !== primary)
         throw new ProgressionError('Quarantined recovery snapshot exists; export it before another recovery');
-      if (existing === null) storage.setItem(quarantineKey,primary);
-      // A different tab may have saved valid progress since the first read.
+      // Check before writing a quarantine too: avoid an obsolete snapshot
+      // poisoning recovery if another tab already changed the primary.
       if (storage.getItem(key) !== primary)
         throw new ProgressionError('Save changed in another session; refusing recovery');
+      if (existing === null) storage.setItem(quarantineKey,primary);
+      // A second read narrows, but cannot close, localStorage's non-atomic gap.
+      if (storage.getItem(key) !== primary) {
+        // Remove only a snapshot this call created, and only if unchanged.
+        // If cleanup fails, the raw snapshot is retained rather than lost.
+        if (existing === null && storage.getItem(quarantineKey) === primary)
+          storage.removeItem(quarantineKey);
+        throw new ProgressionError('Save changed in another session; refusing recovery');
+      }
     }
     storage.setItem(key,raw);
     return jsonCopy(recovered);
@@ -464,11 +475,37 @@ export class StandardProgression {
     if (raw === null) throw new ProgressionError('No pre-import recovery available');
     return this.restoreFrom(raw,true);
   }
-  /** Undo the most recent recovery. Keep the slot intact for repeat recovery. */
+  /**
+   * Undo a previous restore without losing gameplay performed since then.
+   * Save the current primary to a separate durable pre-undo slot first.
+   * A different existing pre-undo snapshot blocks repeated destructive undos.
+   */
   restorePreRestore(): SaveState {
+    this.requireFreshWriter();
     const raw = this.storage.getItem(this.preRestoreKey);
     if (raw === null) throw new ProgressionError('No pre-restore recovery available');
+    validateStateAgainstCatalog(parseSave(raw,this.catalog.sourceVersion),this.catalog);
+    const current = this.storage.getItem(this.key);
+    if (current !== this.persistedRaw)
+      throw new ProgressionError('Save changed in another session; reopen before writing');
+    if (current === raw) return this.snapshot();
+    if (current !== null) {
+      validateStateAgainstCatalog(parseSave(current,this.catalog.sourceVersion),this.catalog);
+      const preserved = this.storage.getItem(this.preUndoKey);
+      if (preserved !== null && preserved !== current)
+        throw new ProgressionError('Pre-undo snapshot exists; restorePreUndo() or clearPreUndoBackup() first');
+      if (this.storage.getItem(this.key) !== current)
+        throw new ProgressionError('Save changed in another session; reopen before writing');
+      if (preserved === null) this.storage.setItem(this.preUndoKey,current);
+    }
     return this.restoreFrom(raw,false);
+  }
+  /** Reapply the progress preserved immediately before an explicit restore undo. */
+  restorePreUndo(): SaveState {
+    const raw = this.storage.getItem(this.preUndoKey);
+    if (raw === null) throw new ProgressionError('No pre-undo recovery available');
+    // This method preserves the current primary via restoreFrom's pre-restore guard.
+    return this.restoreFrom(raw,true);
   }
   /** Clearing durable pre-import recovery requires an explicit user choice. */
   clearPreImportBackup(): void {
@@ -479,5 +516,26 @@ export class StandardProgression {
   clearPreRestoreBackup(): void {
     this.requireFreshWriter();
     this.storage.removeItem(this.preRestoreKey);
+  }
+  /** Deliberately discard the extra snapshot captured before an undo. */
+  clearPreUndoBackup(): void {
+    this.requireFreshWriter();
+    this.storage.removeItem(this.preUndoKey);
+  }
+  /**
+   * Remove quarantined raw bytes only if the caller supplies the exact
+   * snapshot they have chosen to discard. The UI should require users
+   * to export a copy and explicitly confirm the irreversible clear.
+   */
+  clearQuarantine(expectedRaw: string): void {
+    this.requireFreshWriter();
+    const current = this.storage.getItem(this.recoveryQuarantineKey);
+    if (current === null) throw new ProgressionError('No quarantined primary available');
+    if (current !== expectedRaw)
+      throw new ProgressionError('Quarantine differs from expected snapshot; refusing clear');
+    this.requireFreshWriter();
+    if (this.storage.getItem(this.recoveryQuarantineKey) !== expectedRaw)
+      throw new ProgressionError('Quarantine changed in another session; refusing clear');
+    this.storage.removeItem(this.recoveryQuarantineKey);
   }
 }
