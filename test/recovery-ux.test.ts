@@ -134,10 +134,11 @@ test('recovery refuses a foreign update before writing quarantine',()=>{
     removeItem(k){store.removeItem(k);},
   };
   assert.throws(()=>StandardProgression.recoverCorruptPrimary(switching,catalog),/another session/);
-  assert.equal(store.getItem(p.recoveryQuarantineKey),null);
+  // A racing recovery may rely on this as the only raw copy. Never auto-delete it.
+  assert.equal(store.getItem(p.recoveryQuarantineKey),'{broken-v0.7');
   assert.equal(store.getItem(p.key),prior);
 });
-test('recovery cleans up only its own quarantine when primary changes after stashing',()=>{
+test('recovery preserves quarantined bytes when another session changes the primary',()=>{
   const {p,store}=setup();
   const prior=store.getItem(p.backupKey)!;
   store.setItem(p.key,'{broken-v0.7');
