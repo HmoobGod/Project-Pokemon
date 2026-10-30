@@ -1,11 +1,11 @@
 {
   "name": "project-pokemon-offline-progression",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "private": true,
   "type": "module",
   "description": "Research-only offline progression core; no original game assets",
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.ts test/verified-catalog.test.mjs",
-    "typecheck": "tsc --noEmit --target ES2022 --module nodenext --moduleResolution nodenext --strict --lib ES2022,DOM --allowImportingTsExtensions --skipLibCheck src/progression.ts src/league.ts src/recovery-bundle.ts"
+    "typecheck": "tsc --noEmit --target ES2022 --module nodenext --moduleResolution nodenext --strict --lib ES2022,DOM --allowImportingTsExtensions --skipLibCheck src/progression.ts src/league.ts src/recovery-bundle.ts src/recovery-readiness.ts"
   }
 }

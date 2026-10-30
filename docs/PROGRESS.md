@@ -42,7 +42,13 @@ No playable Android APK exists. These are engineering estimates, not measured fu
 - No increase to overall 14% estimated APK progress; no playable UI/Android implementation.
 
 ## v0.7.3 stacked read-only emergency export candidate — October 30, 2026
-- v0.7.2 PR #6 was Claude-approved and squash-merged to main at `7331f4efbfa932c398b57b5024a318aad661f374`. PR #7 is rebased directly on this new main and is not merged.
+- v0.7.2 PR #6 merged at `7331f4efbfa932c398b57b5024a318aad661f374`; v0.7.3 PR #7 independently Claude-approved and merged at `1ff42dc9e2591b8234e6de4888ef63aee59a6e39` (92/92 tests, strict typecheck).
 - Add raw export/structural validation for six recovery slots, including incompatible/corrupt bytes, without mutating any saved gameplay state.
-- New source regression tests; rerun exact-head CI and independent Claude review of the rebased head required before merging.
+- v0.7.3 source CI and independent Claude review passed, with 92/92 tests and strict typecheck.
 - Overall APK estimate remains 14%; gameplay/Android/device tests still 0%.
+
+## v0.7.4 read-only recovery preflight candidate — October 30, 2026
+- New PR #8 is rebased directly on merged v0.7.3 main `1ff42dc9e2591b8234e6de4888ef63aee59a6e39`. This PR remains unmerged pending new exact-head CI and independent review.
+- Read-only Standard slot health and action preview: no write, read-only inspection, no raw save bytes returned. Actual restore/clear/import remains unchanged.
+- F3 failed-undo retry and F4 blocked redo tests demonstrate **preflight recognition only**. They do NOT fix F3 or F4; no user-facing resolution UX exists.
+- No original client/assets, official reward parity, Android APK, on-device gameplay or migration completed. Estimated overall APK progress remains 14%.
