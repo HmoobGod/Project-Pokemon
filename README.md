@@ -12,7 +12,7 @@ Original client rules ██████░░░░░░░░░░░░░�
 Gameplay / Android    ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-**Current source candidate: v0.7.1.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
+**Latest merged: v0.7.1; v0.7.2 PR #6 remains open; v0.7.3 is a stacked source-only candidate.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
 
 See [full progress](docs/PROGRESS.md), [v0.7 technical details](docs/SAVE_RECOVERY_V0.7.md), and [Claude review request](docs/CLAUDE_REVIEW_V0.7.md).
 
@@ -39,3 +39,7 @@ This patch addresses Claude's **F1** (quarantine clear unreachable during a corr
 ## v0.7.2 candidate — missing-primary race guard
 
 Claude's v0.7.1 review identified a race where recovery of an absent primary could replace a newly written valid save. The new final primary check fails closed. See [technical notes](docs/RECOVERY_RACE_V0.7.2.md) and [review packet](docs/CLAUDE_REVIEW_V0.7.2.md). Pending independent CI and review.
+
+## v0.7.3 stacked candidate — lossless recovery export
+
+Add a read-only export of all six Standard save/recovery slots, preserving corrupt or incompatible raw content without modifying gameplay progress. This branch depends on the unmerged v0.7.2 review gate. See [technical note](docs/LOSSLESS_RECOVERY_EXPORT_V0.7.3.md). No Android APK or gameplay client yet.

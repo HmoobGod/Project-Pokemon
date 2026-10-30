@@ -40,3 +40,9 @@ No playable Android APK exists. These are engineering estimates, not measured fu
 - Fix N1: avoid overwriting newer primary when initial primary was missing and another tab saves during recovery.
 - Four new tests; exact-head GitHub CI and Claude delta review required before merge.
 - No increase to overall 14% estimated APK progress; no playable UI/Android implementation.
+
+## v0.7.3 stacked read-only emergency export candidate — October 30, 2026
+- Work is stacked on v0.7.2 PR #6; neither is merged at time of authoring.
+- Add raw export/structural validation for six recovery slots, including incompatible/corrupt bytes, without mutating any saved gameplay state.
+- New source regression tests; exact-head CI and independent review remain required before merging.
+- Overall APK estimate remains 14%; gameplay/Android/device tests still 0%.
