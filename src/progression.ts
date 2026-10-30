@@ -29,7 +29,7 @@ export interface RunReport {
 }
 export interface RewardPolicy {
   /** Must exactly match the upstream reward formula before this is integrated. */
-  calculateRunStardust(report: Readonly<RunReport>, map: string): number;
+  calculateRunStardust(report: Readonly<RunReport>, map: string, mode: RunTicket['mode']): number;
 }
 export interface RunTicket { id: string; map: string; mode: 'classic' | 'other' }
 export interface SaveState {
@@ -49,6 +49,8 @@ export interface SaveState {
   pendingRuns: RunTicket[];
 }
 export class ProgressionError extends Error {}
+/** A defensive bound until the exact upstream multi-run contract is verified. */
+export const MAX_PENDING_RUNS = 128;
 
 /** Export is portable JSON with a SHA-256 integrity checksum, NOT a digital signature. */
 export interface SaveExportEnvelope {
@@ -105,6 +107,19 @@ export function validateCatalog(c: Catalog): void {
   c.maps.forEach(m=> {nonemptyString(m.id,'map id'); if (m.requiresWinOf && !c.maps.some(x=>x.id===m.requiresWinOf)) throw new ProgressionError('Missing map prerequisite');});
   checkUnique(c.lab.map(x=>x.id),'Lab id');checkUnique(c.shop.map(x=>x.key),'shop id');
   checkUnique(c.achievements.map(x=>x.id),'achievement id');checkUnique(c.maps.map(x=>x.id),'map id');checkUnique(c.counterKeys,'counter keys');
+  // One directed prerequisite per map: every chain must end at an available root.
+  // An otherwise valid catalog with a cycle would permanently strand players.
+  if (!c.maps.some(m=>!m.requiresWinOf)) throw new ProgressionError('Map catalog has no unlocked root');
+  for (const map of c.maps) {
+    const visited = new Set<string>();
+    let current: MapRule | undefined = map;
+    while (current?.requiresWinOf) {
+      if (visited.has(current.id)) throw new ProgressionError('Cyclic map prerequisites');
+      visited.add(current.id);
+      current = c.maps.find(m=>m.id===current!.requiresWinOf);
+      if (!current) throw new ProgressionError('Missing map prerequisite');
+    }
+  }
 }
 
 /** Reject wrong-edition, impossible catalog IDs, and out-of-range Lab levels. */
@@ -122,7 +137,12 @@ export function validateStateAgainstCatalog(state: Readonly<SaveState>, catalog:
   for (const id of state.pokemonSeen) allowed(catalog.pokemon,id,'Pokemon sighting');
   for (const key of state.itemsOwned) allowed(catalog.shop.map(i=>i.key),key,'shop item');
   for (const id of state.questsClaimed) allowed(catalog.achievements.map(a=>a.id),id,'achievement');
-  for (const map of state.mapsWon) allowed(catalog.maps.map(m=>m.id),map,'map');
+  for (const map of state.mapsWon) {
+    allowed(catalog.maps.map(m=>m.id),map,'map');
+    const prerequisite = catalog.maps.find(m=>m.id===map)?.requiresWinOf;
+    if (prerequisite && !state.mapsWon.includes(prerequisite))
+      throw new ProgressionError('Won map without prerequisite victory');
+  }
   for (const run of state.pendingRuns) allowed(catalog.maps.map(m=>m.id),run.map,'pending map');
   for (const [id,level] of Object.entries(state.lab)) {
     const entry = catalog.lab.find(l => l.id === id);
@@ -151,8 +171,12 @@ export function parseSave(raw: string, expectedVersion: string): SaveState {
   for (const key of ['itemsOwned','questsClaimed','mapsWon','processedRuns'] as const) listOf(data[key],x=>{nonemptyString(x,key);},key);
   safeCounters(data.lab,'lab');safeCounters(data.counters,'counters');
   if (!Array.isArray(data.pendingRuns)) throw new ProgressionError('Invalid pending runs');
+  if (data.pendingRuns.length > MAX_PENDING_RUNS) throw new ProgressionError('Too many pending run tickets');
   for (const ticket of data.pendingRuns) {
     if (!isRecord(ticket)) throw new ProgressionError('Invalid ticket');
+    if (Object.keys(ticket).length !== 3 ||
+        !['id','map','mode'].every(key=>Object.hasOwn(ticket,key)))
+      throw new ProgressionError('Unexpected pending run ticket fields');
     nonemptyString(ticket.id,'run id');nonemptyString(ticket.map,'run map');
     if (ticket.mode !== 'classic' && ticket.mode !== 'other') throw new ProgressionError('Invalid run mode');
   }
@@ -272,6 +296,8 @@ export class StandardProgression {
     const m=this.catalog.maps.find(x=>x.id===map);
     if (!m) throw new ProgressionError('Unknown map');
     if (m.requiresWinOf && !this.state.mapsWon.includes(m.requiresWinOf)) throw new ProgressionError('Map is locked');
+    if (this.state.pendingRuns.length >= MAX_PENDING_RUNS)
+      throw new ProgressionError('Too many pending run tickets');
     const id=this.idFactory();nonemptyString(id,'ticket id');
     if ([...this.state.pendingRuns.map(r=>r.id),...this.state.processedRuns].includes(id)) throw new ProgressionError('Repeated run ID');
     const ticket:RunTicket={id,map,mode};
@@ -287,7 +313,7 @@ export class StandardProgression {
     const seen=report.seen??[],captures=report.captures??[];
     if (!Array.isArray(seen) || !Array.isArray(captures)) throw new ProgressionError('Invalid run species list');
     for(const id of [...seen,...captures]) if (!this.catalog.pokemon.includes(id)) throw new ProgressionError('Unknown Pokemon in run report');
-    const earned=asInteger(this.policy.calculateRunStardust(jsonCopy(report),ticket.map),'run reward');
+    const earned=asInteger(this.policy.calculateRunStardust(jsonCopy(report),ticket.map,ticket.mode),'run reward');
     const state=this.commit(s=>{
       s.pendingRuns=s.pendingRuns.filter(t=>t.id!==ticketId);
       s.processedRuns.push(ticketId);

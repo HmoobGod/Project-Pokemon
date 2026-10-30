@@ -1,6 +1,6 @@
 {
   "name": "project-pokemon-offline-progression",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "description": "Research-only offline progression core; no original game assets",

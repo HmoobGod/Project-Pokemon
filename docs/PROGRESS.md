@@ -1,11 +1,11 @@
 # Project Pokemon — Development Progress
 
-**Last local verified source milestone:** v0.4.2, October 30, 2026 (America/Chicago).  
+**Last local verified source milestone:** v0.5, October 30, 2026 (America/Chicago).  
 **Target:** fully offline Android game preserving earned progression, not unlock-all.
 
 ```text
 OVERALL APK          ███░░░░░░░░░░░░░░░░░  14%  rough estimate
-Source + CI         ████████████░░░░░░░░  60%  local tests pass; exact-head CI pending
+Source + CI         ████████████░░░░░░░░  60%  v0.5 local 58/58; PR CI pending
 Progression logic   █████████░░░░░░░░░░░  45%  synthetic and source-only
 Client rule audit   ██████░░░░░░░░░░░░░░  30%  client metadata, not server validation
 Playable integration░░░░░░░░░░░░░░░░░░░░   0%
@@ -16,7 +16,7 @@ Content permissions ░░░░░░░░░░░░░░░░░░░░
 
 ## Verified local milestones
 
-- v0.4.2: **51/51 local automated tests** and strict TypeScript pass.
+- v0.5: **58/58 local automated tests** and strict TypeScript pass. v0.4.2 (51/51 tests) was approved by Claude and merged.
 - Manual export/import format: tagged, pinned-version JSON with SHA-256 integrity check; overwrite requires explicit opt-in.
 - Validated imported item/upgrade/counter/roster IDs; stale writer detection and storage-write failure protections.
 - v0.3: audited 40 client League character definitions (including four compound objectives). No actual unlock entitlement granted.
@@ -25,14 +25,14 @@ Content permissions ░░░░░░░░░░░░░░░░░░░░
 
 ## Remaining blockers
 
-1. **GitHub Actions** must complete successfully on the exact current PR head before merge. Earlier commits were successful; that does not certify later code.
+1. **GitHub Actions** must pass on the new v0.5 PR head before merging that branch. The previously approved v0.4.2 main is green.
 2. Original server Stardust formulas, unlock entitlement/claim logic and maps/modes must be verified rather than guessed.
 3. No original game integration, Android build, device tests, or APK yet.
 4. No permission confirmed for redistributing Charcher's client or third-party Pokémon assets.
 
 ## Next steps
 
-- Obtain exact-head GitHub CI pass **and Claude re-approval** before merging PR #1.
+- Obtain exact-head GitHub CI pass and Claude review for v0.5 PR #2; v0.4.2 PR #1 is already merged.
 - Audit original server-visible reward and profile contracts; leave unknown rules inactive.
 - Create authorized client adapter; validate starter → run → earned Stardust → purchase → save/reload.
 - Integrate import/export UI and isolate Standard Android package identity, then build and test APK when rights allow.
@@ -55,3 +55,12 @@ Content permissions ░░░░░░░░░░░░░░░░░░░░
 - Seven additional local regression tests bring the expected suite to **51 tests**.
 - Exact-head CI and Claude delta approval required; PR #1 remains unmerged.
 - Estimated completion remains **14%**; this is a correctness patch, not a new playable-game milestone.
+
+## v0.5 source branch — pre-integration guards
+
+- PR #1 / v0.4.2 was independently approved by Claude and squash-merged as main `5d97798c84147aacc4e32e66ebd691d9179bd0b9` after both exact-head CI runs succeeded.
+- Prototype v0.5: map-cycle and prerequisite guards, strict pending ticket shape, defensive pending-run limit, RewardPolicy receives mode.
+- **N18 and N19 remain open**, and all game/UI/Android and permissions gates remain open.
+- Do not increment the 14% overall APK estimate for test-only safety; no added playable surface.
+
+**Current branch is a source-only v0.5 candidate, NOT merged or released; 14% overall APK estimate remains unchanged.**
