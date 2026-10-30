@@ -105,14 +105,66 @@ function getAchievements(code,pin,shopCount){
   if(!rows.some(a=>a.id==='dex151'&&a.goal===151)||!rows.some(a=>a.id==='items'&&a.goal===shopCount))throw new Error('Missing anchored variable-goal achievements');
   return rows;
 }
+/** Split an array on top-level commas without executing upstream JavaScript. */
+export function splitArrayEntries(source) {
+  if(!source.startsWith('[')||!source.endsWith(']'))throw new Error('Invalid array source');
+  const rows=[];let begin=1,braces=0,brackets=0,parens=0,quote='',escaped=false;
+  for(let i=1;i<source.length-1;i++) {
+    const ch=source[i];
+    if(quote) {
+      if(escaped)escaped=false;
+      else if(ch==='\\')escaped=true;
+      else if(ch===quote)quote='';
+      continue;
+    }
+    if(ch==='"'||ch==="'"||ch==='`'){quote=ch;continue;}
+    if(ch==='{')braces++;
+    else if(ch==='}')braces--;
+    else if(ch==='[')brackets++;
+    else if(ch===']')brackets--;
+    else if(ch==='(')parens++;
+    else if(ch===')')parens--;
+    if(Math.min(braces,brackets,parens)<0)throw new Error('Unbalanced client array');
+    if(ch===','&&!braces&&!brackets&&!parens) {
+      rows.push(source.slice(begin,i).trim());begin=i+1;
+    }
+  }
+  if(quote||braces||brackets||parens)throw new Error('Incomplete client array');
+  const last=source.slice(begin,-1).trim();if(last)rows.push(last);
+  if(rows.some(x=>!x))throw new Error('Empty client array entry');
+  return rows;
+}
 function getRoster(code,pin){
   const a=arrayAt(code,'O=[{id:1,start:!0');
-  const rows=[...a.matchAll(/\{id:(\d+)/g)].map(m=>Number(m[1]));
-  checkExpected(rows.length,pin.rosterCount,'playable roster count');
-  if(new Set(rows).size!==rows.length)throw new Error('Duplicate roster ID');
-  const starters=[...a.matchAll(/\{id:(\d+),start:!0/g)].map(m=>Number(m[1]));
+  const entries=splitArrayEntries(a);
+  checkExpected(entries.length,pin.rosterCount,'playable roster count');
+  const rules=entries.map(entry=>{
+    const id=Number(entry.match(/^\{id:(\d+),/)?.[1]);
+    if(!Number.isSafeInteger(id)||id<=0)throw new Error('Unsupported League member ID');
+    const starter=/^\{id:\d+,start:!0,/.test(entry);
+    const match=entry.match(/,challenge:(\{[^{}]*\}|\[(?:\{[^{}]*\},?)+\])\}$/);
+    if(!match)throw new Error('Missing or unsupported League challenge: '+id);
+    const challenge=match[1];
+    const conditions=[...challenge.matchAll(/counter:`([^`]+)`,goal:([\de.]+)/g)]
+      .map(x=>({counter:x[1],goal:finitePositive(numeric(x[2]),'League challenge goal')}));
+    if(!conditions.length||conditions.some(x=>!x.goal)||
+       (challenge.match(/counter:/g)||[]).length!==conditions.length)
+      throw new Error('Unsupported League conditions: '+id);
+    const parts=challenge.startsWith('[')?splitArrayEntries(challenge):[challenge];
+    if(parts.length!==conditions.length)throw new Error('Incomplete League challenge conditions: '+id);
+    return {id,starter,conditions,logic:'all',status:'client-objectives-only'};
+  });
+  distinct(rules,'id','League member IDs');
+  const starters=rules.filter(x=>x.starter).map(x=>x.id);
   if(starters.join(',')!=='1,4,7') throw new Error('Unexpected starter options');
-  return {starters,rosterIds:rows};
+  const locked=rules.filter(x=>!x.starter);
+  if(pin.rosterCount===40 && (
+    rules.find(x=>x.id===151)?.conditions[0]?.goal!==78 ||
+    rules.find(x=>x.id===133)?.conditions.length!==2 ||
+    rules.find(x=>x.id===1)?.conditions[0]?.counter!=='runs' ||
+    locked.length!==37
+  ))throw new Error('League challenge control mismatch');
+  return {starters,rosterIds:rules.map(x=>x.id),leagueChallenges:rules};
 }
 
 export function auditManifest(snapshot,pin=PIN) {
@@ -140,7 +192,7 @@ export function extractCatalog(configText,pin=PIN) {
   if(!configText.includes('version:`'+pin.upstreamVersion+'`,build:`'+pin.upstreamBuild+'`'))throw new Error('Unrecognized game build');
   const lab=getLab(configText,pin),shop=getShop(configText,pin),achievements=getAchievements(configText,pin,shop.length),roster=getRoster(configText,pin);
   if(lab.find(x=>x.id==='slot-move')?.costByLevel[0]!==1275 || lab.find(x=>x.id==='slot-vit')?.costByLevel.join(',')!=='1020,2550'||shop.find(x=>x.key==='soda-pop')?.price!==150||achievements.find(x=>x.id==='k100')?.reward!==50)throw new Error('Catalog control mismatch');
-  return {source:{upstreamVersion:pin.upstreamVersion,upstreamBuild:pin.upstreamBuild,configSha256:pin.configSha256,source:'client config; server logic NOT included'},starters:roster.starters,leagueCandidateIds:roster.rosterIds,lab,shop,achievements,unverified:['run Stardust rewards','run eligibility and anti-cheat','League unlock and research prerequisites','map unlock rules','event and commission rewards','server-validated achievement claims']};
+  return {source:{upstreamVersion:pin.upstreamVersion,upstreamBuild:pin.upstreamBuild,configSha256:pin.configSha256,source:'client config; server logic NOT included'},starters:roster.starters,leagueCandidateIds:roster.rosterIds,leagueChallenges:roster.leagueChallenges,lab,shop,achievements,unverified:['run Stardust rewards','run eligibility and anti-cheat','League unlock and research prerequisites','map unlock rules','event and commission rewards','server-validated achievement claims']};
 }
 export async function extractSnapshot(root,{verifyAssets=false}={}){
   const snapshot=JSON.parse(await readFile(join(root,'snapshot.json'),'utf8'));

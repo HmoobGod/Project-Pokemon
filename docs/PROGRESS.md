@@ -1,51 +1,37 @@
-# Development progress — Project Pokemon
+# Project Pokemon — Development Progress
 
-**Updated:** 2026-10-30 (America/Chicago)  
-**Release target:** standalone Android app with earned progression (not unlock-all)  
-**Evidence baseline:** PR #1, v0.2 source branch `setup/offline-progression-v0.2`
-
-> All percentages below are **rough engineering estimates** for the full playable APK, **not** automated test coverage or verified feature-completion measurements. Re-estimate as requirements and testing change.
-
-## Completion dashboard
+**Last verified source milestone:** v0.3, October 30, 2026 (America/Chicago).  
+**Target:** fully offline Android game preserving earned progression, not unlock-all.
 
 ```text
-OVERALL             ██░░░░░░░░░░░░░░░░░░  10% (estimate)
-Source / CI         ███████████░░░░░░░░░  55% (estimate)
-Progression engine  ██████░░░░░░░░░░░░░░  30% (estimate)
-Original rules      ████░░░░░░░░░░░░░░░░  20% (estimate)
-Gameplay connected  ░░░░░░░░░░░░░░░░░░░░   0%
-Android app build   ░░░░░░░░░░░░░░░░░░░░   0%
-Device validation   ░░░░░░░░░░░░░░░░░░░░   0%
-Rights clearance   ░░░░░░░░░░░░░░░░░░░░   0%
+OVERALL APK          ██░░░░░░░░░░░░░░░░░░  12%  rough estimate
+Source + CI         ███████████░░░░░░░░░  55%  GitHub checks pending
+Progression logic   ███████░░░░░░░░░░░░░  35%  synthetic tests
+Client rule audit   ██████░░░░░░░░░░░░░░  30%  not server validation
+Playable integration░░░░░░░░░░░░░░░░░░░░   0%
+Android APK         ░░░░░░░░░░░░░░░░░░░░   0%
+Phone/device tests  ░░░░░░░░░░░░░░░░░░░░   0%
+Content permissions ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-**Asset inventory (separate research finding):** 755/755 expected entries across five Kanto resource families appeared in the separately inspected community builder snapshot for upstream v0.8.80 (151 regular animation sheets, shiny sheets, portraits, icons, and cries). This is **inventory observation only**: not independent content integrity validation, proof of usage permission, or assets included in this repo. It is intentionally **not counted as an APK-complete milestone**.
+## Verified source-only results
+- PR #1 contains the v0.3 source additions, which passed 24/24 local automated tests and strict TypeScript checking.
+- Upstream client **0.8.80 / mvur4p6p**: League catalog has **40 character definitions**, **3 starters (1,4,7)** and **4 two-part challenge definitions**. Source-only verified metadata are retained in `evidence/league-challenges-v0.8.80.json`.
+- Run counter handling now distinguishes explicit lifetime sums from highest-in-one-run records.
+- Read-only League objective preview **never grants unlocks**; ambiguous `league` count and unverified best counters remain unknown.
+- The community snapshot separately inventories 755 expected Kanto animation/portrait/icon/cry entries; no original assets are in this repository.
 
-## Verified milestones
+## Blockers
+1. GitHub CI must pass on the latest PR commit before merge. The checks had been queued; no green result confirmed at this update.
+2. The **actual server run Stardust formula** and original League entitlement/claim semantics remain unverified.
+3. The original client is not integrated; gameplay is not playable in this codebase.
+4. Appropriate rights to package/distribute original client and Pokémon assets have not been established.
+5. No APK build or physical Android tests have occurred.
 
-- [x] Public GitHub repository created.
-- [x] v0.2 prototype code and synthetic test fixtures committed in PR #1.
-- [x] 17/17 local progression and catalog tests reported passing in the v0.2 development session.
-- [x] Local strict TypeScript check reported passing before upload.
-- [x] Source-only GitHub Actions workflow committed.
-- [ ] **GitHub CI green on latest PR head:** queued as of this update; do not mark complete based on local tests alone.
-- [ ] Original server run Stardust calculations and safety rules verified.
-- [ ] Genuine League unlock requirements and claims replicated.
-- [ ] Progression integrated with actual game client under appropriate permissions.
-- [ ] Playable Android APK successfully assembled.
-- [ ] Offline device test, complete progression loop, and safe upgrade/install validated.
-- [ ] Rights and redistribution permissions for any original client/assets resolved.
+## Next priorities
+1. Diagnose queued GitHub CI and obtain a passing exact-head run.
+2. Verify server-facing reward and challenge contracts without guessing values or bypassing authentication.
+3. Build a strict source-to-game interface once authorized inputs are available.
+4. Only then prepare the Android WebView shell and controlled device validation.
 
-## Current blockers and priority order
-
-1. **CI gate:** verify exact-head source tests; merge only after successful checks.
-2. **Economy/entitlements:** measure or obtain authoritative reward formulas, achievement eligibility, and League character unlock validation. Client catalogs do not establish server semantics.
-3. **Licensing:** acquire rights to package original-game assets and code or replace with appropriately licensed/original components.
-4. **Integration:** build a testable starter → run → Stardust → upgrade → save/reload gameplay loop.
-5. **Android:** only then wire the Android shell, build an APK, and run device tests.
-
-## Reporting convention (for future updates)
-
-Every future development status should show **one overall estimated completion bar**, **smaller category milestone bars**, the **latest verified milestone**, **current blockers**, and **next priorities**. Update estimates dynamically, and always distinguish prototype/source tests from playable APK and physical Android testing.
-
-**Status:** source-only proof of concept; no playable APK or Android device certification yet.
+**These percentages are subjective planning estimates and will be revised when verified work changes.**

@@ -11,6 +11,8 @@ export interface Achievement { id: string; counter: string; goal: number; reward
 export interface MapRule { id: string; requiresWinOf?: string }
 export interface Catalog {
   sourceVersion: string;
+  /** Only explicitly verified per-run maxima use max; other counters accumulate. */
+  counterModes?: Readonly<Record<string, 'sum' | 'max'>>;
   starters: readonly number[];
   pokemon: readonly number[];
   lab: readonly LabUpgrade[];
@@ -80,6 +82,9 @@ export function validateCatalog(c: Catalog): void {
   c.lab.forEach(l => {nonemptyString(l.id,'lab id'); if (!l.costByLevel.length) throw new ProgressionError('Missing Lab level costs'); l.costByLevel.forEach(x=>asInteger(x,'Lab price'));});
   c.shop.forEach(i => {nonemptyString(i.key,'item key');asInteger(i.price,'shop price');});
   c.counterKeys.forEach(k=>{nonemptyString(k,'counter key');if (k==='runs' || k==='wins') throw new ProgressionError('Reserved counter in catalog');});
+  for (const [key,mode] of Object.entries(c.counterModes??{})) {
+    if (!c.counterKeys.includes(key) || (mode!=='sum' && mode!=='max')) throw new ProgressionError('Unsupported counter accumulation mode');
+  }
   c.achievements.forEach(a=>{nonemptyString(a.id,'achievement id');nonemptyString(a.counter,'counter');if (!c.counterKeys.includes(a.counter) && a.counter !== 'runs' && a.counter !== 'wins') throw new ProgressionError('Achievement counter not in catalog');asInteger(a.goal,'goal'); if (!a.goal) throw new ProgressionError('Zero achievement goal');asInteger(a.reward,'achievement reward');});
   c.maps.forEach(m=> {nonemptyString(m.id,'map id'); if (m.requiresWinOf && !c.maps.some(x=>x.id===m.requiresWinOf)) throw new ProgressionError('Missing map prerequisite');});
   checkUnique(c.lab.map(x=>x.id),'Lab id');checkUnique(c.shop.map(x=>x.key),'shop id');
@@ -184,7 +189,9 @@ export class StandardProgression {
         s.counters.wins=add(s.counters.wins??0,1);
       }
       for(const [k,n] of Object.entries(report.counters)) {
-        s.counters[k]=add(s.counters[k]??0,n);
+        s.counters[k]=this.catalog.counterModes?.[k]==='max'
+          ? Math.max(s.counters[k]??0,n)
+          : add(s.counters[k]??0,n);
       }
       s.pokemonSeen=unique([...s.pokemonSeen,...seen,...captures]);
       // A capture is NOT evidence that a League character is unlocked.

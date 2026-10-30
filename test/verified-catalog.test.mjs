@@ -10,11 +10,13 @@ const fixture=[
   'Ze=[{id:`slot-move`,max:1,cost:h(1500)},{id:`slot-vit`,max:2,cost:Xe([1200,3e3])}],',
   'g=(e,t)=>({key:e,price:t}),$e=[g(`soda-pop`,150)],',
   'at=[{id:`k100`,counter:`kills`,goal:100,reward:50},{id:`dex151`,counter:`@dex`,goal:u.maxDex,reward:1500},{id:`items`,counter:`@items`,goal:$e.length,reward:1e3}],',
-  'O=[{id:1,start:!0},{id:4,start:!0},{id:7,start:!0}]'
+  'O=[{id:1,start:!0,challenge:{desc:t(`Choose`),counter:`runs`,goal:2}},{id:4,start:!0,challenge:{desc:t(`Choose`),counter:`runs`,goal:2}},{id:7,start:!0,challenge:{desc:t(`Choose`),counter:`runs`,goal:2}}]'
 ].join('');
 test('pinned catalog reader extracts formula prices, starter IDs and special achievement goals',()=>{
   const c=extractCatalog(fixture,fictive);
   assert.deepEqual(c.starters,[1,4,7]);
+  assert.equal(c.leagueChallenges.length,3);
+  assert.deepEqual(c.leagueChallenges[0].conditions,[{counter:'runs',goal:2}]);
   assert.deepEqual(c.lab.find(x=>x.id==='slot-move').costByLevel,[1275]);
   assert.deepEqual(c.lab.find(x=>x.id==='slot-vit').costByLevel,[1020,2550]);
   assert.equal(c.shop[0].price,150);
@@ -57,4 +59,21 @@ test('conflicting digest, invalid hash, duplicate paths and version drift are re
   const m=fakeSnapshot();m.files.push({...m.files[0]});assert.throws(()=>auditManifest(m,fictive),/duplicate/);
   const n=fakeSnapshot();n.files[0].sha256='nope';assert.throws(()=>auditManifest(n,fictive),/metadata/);
   const o=fakeSnapshot();o.upstreamVersion='0.8.81';assert.throws(()=>auditManifest(o,fictive),/build/);
+});
+
+
+test('League challenge extraction handles multiple requirements without client-code execution',()=>{
+  const four={...fictive,rosterCount:4};
+  const code=fixture.replace('}]', '}]');
+  const expanded=code.replace('challenge:{desc:t(`Choose`),counter:`runs`,goal:2}}]', 'challenge:{desc:t(`Choose`),counter:`runs`,goal:2}},{id:133,challenge:[{desc:t(`Units`),counter:`league`,goal:15},{desc:t(`Played`),counter:`speciesPlayed`,goal:10}]}]');
+  const parsed=extractCatalog(expanded,four);
+  assert.equal(parsed.leagueChallenges.length,4);
+  assert.deepEqual(parsed.leagueChallenges[3].conditions,[{counter:'league',goal:15},{counter:'speciesPlayed',goal:10}]);
+  assert.equal(parsed.leagueChallenges[3].logic,'all');
+  assert.equal(parsed.leagueChallenges[3].status,'client-objectives-only');
+});
+test('League challenge extraction fails closed when missing or malformed',()=>{
+  assert.throws(()=>extractCatalog(fixture.replace('counter:`runs`,goal:2','counter:`runs`,goal:0'),fictive),/Unsupported League conditions|League challenge goal/);
+  assert.throws(()=>extractCatalog(fixture.replace('counter:`runs`,goal:2','counter:`runs`,goal:wrong'),fictive),/conditions/);
+  assert.throws(()=>extractCatalog(fixture.replace('challenge:{desc:t(`Choose`),counter:`runs`,goal:2}', 'challenge:undefined'),fictive),/League challenge/);
 });

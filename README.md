@@ -5,19 +5,24 @@ A **source-only, experimental** Android game-port research project targeting an 
 ## Progress dashboard (estimated)
 
 ```text
-Overall APK completion   ██░░░░░░░░░░░░░░░░░░  10%
+Overall APK completion   ██░░░░░░░░░░░░░░░░░░  12%
 Source / CI              ███████████░░░░░░░░░  55%
-Progression engine       ██████░░░░░░░░░░░░░░  30%
-Original rules verified  ████░░░░░░░░░░░░░░░░  20%
+Progression engine       ███████░░░░░░░░░░░░░  35%
+Original client rules    ██████░░░░░░░░░░░░░░  30%
 Gameplay integration     ░░░░░░░░░░░░░░░░░░░░   0%
 Android build            ░░░░░░░░░░░░░░░░░░░░   0%
 Device tests             ░░░░░░░░░░░░░░░░░░░░   0%
 Rights clearance         ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-These are rough development estimates, **not** validated APK-completion measurements. Latest verified milestone: **v0.2 local 17/17 tests**, with GitHub CI still pending at this dashboard update. See [full progress, blockers and next priorities](docs/PROGRESS.md). **No playable APK yet.**
+Rough engineering estimates, not verified APK completion. **v0.3 source: 24/24 local tests** and strict TypeScript check passed. GitHub CI is not yet green; no APK exists. See [progress and blockers](docs/PROGRESS.md).
 
-## Current milestone: v0.2 (prototype)
+## Current milestone: v0.3 (source-only prototype)
+
+- Source-derived League challenge extraction covers all 40 client definitions and four compound objectives; **no character entitlements are granted without server verification**.
+- Corrected opt-in max-vs-sum run counters for best-in-one-run milestones.
+- [v0.3 League challenge audit](docs/LEAGUE_V0.3.md) and [factual challenge data](evidence/league-challenges-v0.8.80.json).
+
 
 - New save data starts with zero Stardust; starters are selected normally.
 - Earned rewards, Lab/item purchases, achievement claims, and backup recovery are implemented and tested **with synthetic fixtures**.
