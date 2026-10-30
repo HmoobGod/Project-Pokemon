@@ -33,3 +33,10 @@ No playable Android APK exists. These are engineering estimates, not measured fu
 - Five new regression tests; new exact-head CI and independent Claude delta review required before merge.
 - F3/F4 recovery UX, processed-run growth and migration remain pre-UI blockers.
 - Overall APK estimate **14%**; no playable Android integration has been completed.
+
+
+## v0.7.2 missing-primary recovery race fix (October 30, 2026)
+- Claude APPROVE WITH CONDITIONS for v0.7.1 and PR #5 merged at `328eab8bd9dfc4f5d89261ffcacbd9c4b86dc277` (84/84 CI tests).
+- Fix N1: avoid overwriting newer primary when initial primary was missing and another tab saves during recovery.
+- Four new tests; exact-head GitHub CI and Claude delta review required before merge.
+- No increase to overall 14% estimated APK progress; no playable UI/Android implementation.

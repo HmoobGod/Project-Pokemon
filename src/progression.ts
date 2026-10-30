@@ -426,6 +426,12 @@ export class StandardProgression {
       if (storage.getItem(key) !== primary)
         throw new ProgressionError('Save changed in another session; refusing recovery');
     }
+    // Check ALL recovery paths, including primary === null. Otherwise a tab
+    // can create a valid primary while this tab reads the backup, and a stale
+    // recovery would silently replace the newer profile. localStorage cannot
+    // make the final read+write atomic, but this closes the known gap.
+    if (storage.getItem(key) !== primary)
+      throw new ProgressionError('Save changed in another session; refusing recovery');
     storage.setItem(key,raw);
     return jsonCopy(recovered);
   }
