@@ -12,7 +12,7 @@ Original client rules ██████░░░░░░░░░░░░░�
 Gameplay / Android    ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-**Current source candidate: v0.7.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
+**Current source candidate: v0.7.1.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
 
 See [full progress](docs/PROGRESS.md), [v0.7 technical details](docs/SAVE_RECOVERY_V0.7.md), and [Claude review request](docs/CLAUDE_REVIEW_V0.7.md).
 
@@ -30,3 +30,7 @@ No official game backend, authentic server reward formulas or League entitlement
 ## Original content and rights
 
 This repository contains original prototype code, synthetic fixtures, factual client metadata and notes. Original PokéBonk game code, Pokémon art/assets, sounds and bundles are **excluded**. Public availability is not authorization to redistribute game assets. Rights/permissions must be reviewed before distributing any original game content. Unofficial and unaffiliated.
+
+## v0.7.1 safety patch (candidate)
+
+This patch addresses Claude's **F1** (quarantine clear unreachable during a corrupt primary) and **F2** (concurrent recovery deleting the only raw rescue copy). See [technical note](docs/QUARANTINE_HOTFIX_V0.7.1.md) and [review request](docs/CLAUDE_REVIEW_V0.7.1.md). Requires exact-head CI and Claude review before merge.

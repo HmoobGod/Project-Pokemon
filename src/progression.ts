@@ -420,14 +420,11 @@ export class StandardProgression {
       if (storage.getItem(key) !== primary)
         throw new ProgressionError('Save changed in another session; refusing recovery');
       if (existing === null) storage.setItem(quarantineKey,primary);
-      // A second read narrows, but cannot close, localStorage's non-atomic gap.
-      if (storage.getItem(key) !== primary) {
-        // Remove only a snapshot this call created, and only if unchanged.
-        // If cleanup fails, the raw snapshot is retained rather than lost.
-        if (existing === null && storage.getItem(quarantineKey) === primary)
-          storage.removeItem(quarantineKey);
+      // Never delete a quarantine on an observed race: another recovery
+      // may already have relied on this exact snapshot as its only raw copy.
+      // The durable quarantine can be explicitly exported and cleared later.
+      if (storage.getItem(key) !== primary)
         throw new ProgressionError('Save changed in another session; refusing recovery');
-      }
     }
     storage.setItem(key,raw);
     return jsonCopy(recovered);
@@ -523,19 +520,32 @@ export class StandardProgression {
     this.storage.removeItem(this.preUndoKey);
   }
   /**
-   * Remove quarantined raw bytes only if the caller supplies the exact
-   * snapshot they have chosen to discard. The UI should require users
-   * to export a copy and explicitly confirm the irreversible clear.
+   * An emergency clear does not require constructing StandardProgression:
+   * a second corrupt primary makes the constructor intentionally fail closed.
+   * The caller must first export the quarantine and expressly approve deletion.
+   * Both the quarantine and expected primary bytes are checked before removal.
+   * This is best-effort localStorage protection, not an atomic transaction.
    */
-  clearQuarantine(expectedRaw: string): void {
-    this.requireFreshWriter();
-    const current = this.storage.getItem(this.recoveryQuarantineKey);
+  static clearQuarantine(storage: StorageLike, expectedRaw: string, expectedPrimary: string | null): void {
+    if (typeof expectedRaw !== 'string' ||
+        (expectedPrimary !== null && typeof expectedPrimary !== 'string'))
+      throw new ProgressionError('Invalid quarantine clearing inputs');
+    const key = 'pokebonk.standard.profile.v1';
+    const quarantineKey = 'pokebonk.standard.profile.quarantine.v1';
+    if (storage.getItem(key) !== expectedPrimary)
+      throw new ProgressionError('Save changed in another session; refusing quarantine clear');
+    const current = storage.getItem(quarantineKey);
     if (current === null) throw new ProgressionError('No quarantined primary available');
     if (current !== expectedRaw)
       throw new ProgressionError('Quarantine differs from expected snapshot; refusing clear');
+    if (storage.getItem(key) !== expectedPrimary ||
+        storage.getItem(quarantineKey) !== expectedRaw)
+      throw new ProgressionError('Save or quarantine changed in another session; refusing clear');
+    storage.removeItem(quarantineKey);
+  }
+  /** Safe for a valid loaded primary; static overload works when loading fails. */
+  clearQuarantine(expectedRaw: string): void {
     this.requireFreshWriter();
-    if (this.storage.getItem(this.recoveryQuarantineKey) !== expectedRaw)
-      throw new ProgressionError('Quarantine changed in another session; refusing clear');
-    this.storage.removeItem(this.recoveryQuarantineKey);
+    StandardProgression.clearQuarantine(this.storage,expectedRaw,this.persistedRaw);
   }
 }

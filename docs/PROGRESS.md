@@ -25,3 +25,11 @@ Permissions          ░░░░░░░░░░░░░░░░░░░�
 - Validate original server rewards, League entitlements, original client and content permissions.
 
 No playable Android APK exists. These are engineering estimates, not measured functional completion.
+
+## v0.7.1 hotfix candidate — October 30, 2026
+
+- v0.7 PR #4 passed 79/79 CI tests and was independently approved by Claude, then squash-merged to main at `a7a5d3fc122108671843cf69d184d4e693df10b4`.
+- Claude F1/F2 from v0.7: add static quarantine clear reachable during corrupt primary and stop race cleanup deleting the only copy of rejected bytes.
+- Five new regression tests; new exact-head CI and independent Claude delta review required before merge.
+- F3/F4 recovery UX, processed-run growth and migration remain pre-UI blockers.
+- Overall APK estimate **14%**; no playable Android integration has been completed.
