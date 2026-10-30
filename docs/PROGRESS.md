@@ -1,6 +1,6 @@
 # Project Pokemon — Development Progress
 
-**Last local verified source milestone:** v0.4.1, October 30, 2026 (America/Chicago).  
+**Last local verified source milestone:** v0.4.2, October 30, 2026 (America/Chicago).  
 **Target:** fully offline Android game preserving earned progression, not unlock-all.
 
 ```text
@@ -16,7 +16,7 @@ Content permissions ░░░░░░░░░░░░░░░░░░░░
 
 ## Verified local milestones
 
-- v0.4.1: **44/44 local automated tests** and strict TypeScript pass.
+- v0.4.2: **51/51 local automated tests** and strict TypeScript pass.
 - Manual export/import format: tagged, pinned-version JSON with SHA-256 integrity check; overwrite requires explicit opt-in.
 - Validated imported item/upgrade/counter/roster IDs; stale writer detection and storage-write failure protections.
 - v0.3: audited 40 client League character definitions (including four compound objectives). No actual unlock entitlement granted.
@@ -46,3 +46,12 @@ Content permissions ░░░░░░░░░░░░░░░░░░░░
 - Source-only overall completion stays **14% estimated**: save correctness improved, no new gameplay integration.
 - PR #1 MUST remain open until new exact-head GitHub CI succeeds and Claude delta review approves.
 - Full game rewards and unlocks, original assets/permissions, Android build and device tests remain blockers.
+
+## v0.4.2 review gate (October 30, 2026)
+
+- Claude v0.4.1 re-review: **REQUEST CHANGES**, B3 repeated restore undo loss.
+- B3 fixed with a no-op restore guard and durable pre-restore conflict refusal.
+- N12 fixed: future-schema primary is protected from older recovery.
+- Seven additional local regression tests bring the expected suite to **51 tests**.
+- Exact-head CI and Claude delta approval required; PR #1 remains unmerged.
+- Estimated completion remains **14%**; this is a correctness patch, not a new playable-game milestone.

@@ -215,3 +215,99 @@ test('B1/B2: storage quota failure during pre-restore or pre-import keeps primar
   assert.equal(store.getItem(p.key),original);
   assert.deepEqual(p.snapshot(),memory);
 });
+
+
+test('B3: double restoreBackup is a byte-for-byte no-op and retains the newest undo',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const newest=store.getItem(p.key)!;
+  const older=store.getItem(p.backupKey)!;
+  assert.notEqual(newest,older);
+  p.restoreBackup();
+  assert.equal(store.getItem(p.key),older);
+  assert.equal(store.getItem(p.preRestoreKey),newest);
+  // Any storage write is a regression: a no-op should not damage either slot.
+  store.setItem=()=>{throw new Error('Unexpected write on no-op restore');};
+  assert.deepEqual(p.restoreBackup(),parseSave(older,catalog.sourceVersion));
+  assert.equal(store.getItem(p.key),older);
+  assert.equal(store.getItem(p.preRestoreKey),newest);
+});
+
+test('B3: restore then play then restoreBackup refuses to overwrite pending undo',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const newest=store.getItem(p.key)!;
+  p.restoreBackup();
+  const t=p.beginRun('forest');
+  p.finishRun(t.id,{victory:false,counters:{kills:2,best_healed:10}});
+  const before=store.getItem(p.key)!;
+  assert.notEqual(before,newest);
+  assert.throws(()=>p.restoreBackup(),/Pre-restore snapshot exists/);
+  assert.equal(store.getItem(p.key),before);
+  assert.equal(store.getItem(p.preRestoreKey),newest);
+  assert.deepEqual(p.restorePreRestore(),parseSave(newest,catalog.sourceVersion));
+});
+
+test('B3: restoring pre-import cannot rotate away a different pre-restore undo',async()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const original=store.getItem(p.key)!;
+  const other=start();other.chooseStarter(7);
+  await p.importSave(await other.exportSave(),{replace:true});
+  p.beginRun('forest');
+  const beforeFirstRestore=store.getItem(p.key)!;
+  p.restorePreImport();
+  assert.equal(store.getItem(p.key),original);
+  assert.equal(store.getItem(p.preRestoreKey),beforeFirstRestore);
+  const t=p.beginRun('forest');
+  p.finishRun(t.id,{victory:false,counters:{kills:1}});
+  const current=store.getItem(p.key)!;
+  assert.throws(()=>p.restorePreImport(),/Pre-restore snapshot exists/);
+  assert.equal(store.getItem(p.key),current);
+  assert.equal(store.getItem(p.preRestoreKey),beforeFirstRestore);
+});
+
+test('B3: explicitly clearing pre-restore snapshot permits another distinct restore',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const recent=store.getItem(p.key)!;
+  p.restoreBackup();
+  const older=store.getItem(p.key)!;
+  p.beginRun('forest');
+  assert.throws(()=>p.restoreBackup(),/Pre-restore snapshot exists/);
+  p.clearPreRestoreBackup();
+  assert.equal(store.getItem(p.preRestoreKey),null);
+  p.restoreBackup();
+  assert.notEqual(store.getItem(p.preRestoreKey),null);
+  assert.notEqual(store.getItem(p.preRestoreKey),recent);
+  assert.notEqual(store.getItem(p.preRestoreKey),older);
+});
+
+test('B3: restorePreRestore followed by restoreBackup safely keeps the newer undo',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const recent=store.getItem(p.key)!;
+  p.restoreBackup();
+  p.restorePreRestore();
+  assert.equal(store.getItem(p.key),recent);
+  p.restoreBackup();
+  assert.equal(store.getItem(p.preRestoreKey),recent);
+});
+
+test('N12: a readable newer-schema primary cannot be downgraded by recovery',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const backup=store.getItem(p.backupKey)!;
+  const future=JSON.stringify({...p.snapshot(),schema:2,newField:{important:'future-progress'}});
+  store.setItem(p.key,future);
+  assert.throws(()=>StandardProgression.recoverCorruptPrimary(store,catalog),/incompatible save schema/);
+  assert.equal(store.getItem(p.key),future);
+  assert.equal(store.getItem(p.backupKey),backup);
+  const missingSchema=JSON.stringify({sourceVersion:catalog.sourceVersion,unknown:'possibly-new-profile'});
+  store.setItem(p.key,missingSchema);
+  assert.throws(()=>StandardProgression.recoverCorruptPrimary(store,catalog),/incompatible save schema/);
+  assert.equal(store.getItem(p.key),missingSchema);
+});
+
+test('B3: a failed first pre-restore stash never changes the current primary',()=>{
+  const store=new MemoryStore(),p=earnedSave(store);
+  const current=store.getItem(p.key)!;
+  store.failKey=p.preRestoreKey;
+  assert.throws(()=>p.restoreBackup(),/Storage write failed/);
+  assert.equal(store.getItem(p.key),current);
+  assert.equal(store.getItem(p.preRestoreKey),null);
+});

@@ -342,6 +342,10 @@ export class StandardProgression {
       // Incompatible-version data must not be overwritten as though corrupt.
       try {
         const data: unknown = JSON.parse(primary);
+        // A future-schema save might still be valid for a later app release.
+        // Never downgrade a readable profile with an unrecognized schema.
+        if (isRecord(data) && data.schema !== 1)
+          throw new ProgressionError('Primary has incompatible save schema; refusing recovery');
         if (isRecord(data) && typeof data.sourceVersion === 'string' && data.sourceVersion !== catalog.sourceVersion)
           throw new ProgressionError('Primary belongs to another game version; refusing recovery');
       } catch (error) {
@@ -372,10 +376,21 @@ export class StandardProgression {
     const current = this.storage.getItem(this.key);
     if (current !== this.persistedRaw)
       throw new ProgressionError('Save changed in another session; reopen before writing');
+    // A double-tap restore (same target bytes) must not rotate away an undo.
+    if (current === raw) return this.snapshot();
     if (preserveCurrent && current !== null) {
       validateStateAgainstCatalog(parseSave(current,this.catalog.sourceVersion),this.catalog);
-      this.storage.setItem(this.preRestoreKey,current);
+      // This recovery slot is deliberately durable, like pre-import. A later
+      // restore must not destroy its newer, unrecovered snapshot.
+      const preserved = this.storage.getItem(this.preRestoreKey);
+      if (preserved !== null && preserved !== current)
+        throw new ProgressionError('Pre-restore snapshot exists; restorePreRestore() or clearPreRestoreBackup() first');
+      if (preserved === null) this.storage.setItem(this.preRestoreKey,current);
     }
+    // Re-check after selecting the source/undo slot. This is still best-effort;
+    // localStorage has no atomic compare-and-swap across multiple tabs.
+    if (this.storage.getItem(this.key) !== current)
+      throw new ProgressionError('Save changed in another session; reopen before writing');
     this.storage.setItem(this.key,raw);
     this.persistedRaw = raw;
     this.state = next;
@@ -402,5 +417,10 @@ export class StandardProgression {
   clearPreImportBackup(): void {
     this.requireFreshWriter();
     this.storage.removeItem(this.preImportKey);
+  }
+  /** Make discarding an earlier restore undo a separate, explicit decision. */
+  clearPreRestoreBackup(): void {
+    this.requireFreshWriter();
+    this.storage.removeItem(this.preRestoreKey);
   }
 }
