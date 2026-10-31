@@ -78,3 +78,25 @@ test('corrupt primary parity matrix includes occupied quarantine on every varian
     }
   assert.equal(total,60);assert.ok(successes>0);
 });
+
+test('observed concurrent primary change fails closed before writes',()=>{
+  const {b}=fixture(),s=store('{bad',b,null);
+  let reads=0;
+  const racing:Pick<StorageLike,'getItem'>={getItem(k){
+    if(k===S.primary && ++reads===2)s.setItem(k,'other-session-primary');
+    return s.getItem(k);
+  }};
+  assert.throws(()=>assessCorruptPrimaryReadiness(racing,catalog),/changed during export/);
+  assert.equal(s.getItem(S.primary),'other-session-primary');
+  assert.equal(s.getItem(S.quarantine),null);
+});
+
+test('storage read failure propagates and leaves save bytes unchanged',()=>{
+  const {b}=fixture(),s=store('{bad',b,null),before=new Map(s.data);
+  const broken:Pick<StorageLike,'getItem'>={getItem(k){
+    if(k===S.backup)throw new Error('storage unavailable');
+    return s.getItem(k);
+  }};
+  assert.throws(()=>assessCorruptPrimaryReadiness(broken,catalog),/storage unavailable/);
+  assert.deepEqual(s.data,before);assert.equal(s.writes,0);
+});
