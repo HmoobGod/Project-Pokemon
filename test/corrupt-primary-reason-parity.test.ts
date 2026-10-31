@@ -38,14 +38,17 @@ function refused(msg:string){
  if(msg.startsWith('Primary is valid'))return 'blocked-primary-valid';
  if(msg==='No backup available')return 'blocked-backup-missing';
  if(msg.startsWith('Quarantined recovery snapshot exists'))return 'blocked-quarantine-conflict';
- return 'blocked-backup-unreadable';
+ if(msg==='Save JSON is corrupt; primary save left unchanged'||
+    msg==='Incompatible save schema or game version')return 'blocked-backup-unreadable';
+ assert.fail(`Unexpected live recovery refusal: ${msg}`);
 }
-test('544-case exact refusal reason and strict enum-only recovery preview',()=>{
+test('576-case exact refusal reason and strict enum-only recovery preview',()=>{
  const [a,b]=profiles(),save=JSON.parse(a);
  const primaries=[null,a,b,'',`  ${a}  `,'{bad','[]','null','42','"text"','{}',
   JSON.stringify({...save,schema:2}),JSON.stringify({...save,schema:'1'}),
   JSON.stringify({...save,sourceVersion:'future'}),JSON.stringify({...save,sourceVersion:3}),
-  JSON.stringify({...save,stardust:-1}),JSON.stringify({...save,lab:{unknown:1}})];
+  JSON.stringify({...save,stardust:-1}),JSON.stringify({...save,lab:{unknown:1}}),
+  JSON.stringify({...save,schema:2,sourceVersion:'future'})];
  const backups=[null,a,b,'','{bad','[]','{}',JSON.stringify({...save,sourceVersion:'future'})];
  let count=0,good=0;
  for(const p of primaries)for(const b of backups)for(const q of [null,p,'old-rescue','']){
@@ -70,5 +73,6 @@ test('544-case exact refusal reason and strict enum-only recovery preview',()=>{
   assert.equal(v.recovery,expected,'wrong preview refusal reason');
   assert.equal(live.getItem('pokebonk.local.profile.v1'),'other-edition');
  }
- assert.equal(count,544);assert.ok(good>0);
+ // The 18×8×4 fixture count is intentionally pinned. Update deliberately.
+ assert.equal(count,576);assert.ok(good>0);
 });
