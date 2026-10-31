@@ -27,7 +27,14 @@ test('preview never says safe when the live restore method would refuse (all slo
   const pool:(string|null)[]=[null,...raws,'{corrupt'];
   const slots=['primary','backup','preImport','preRestore','preUndo'] as const;
   const actions=[['backup','restoreBackup'],['preImport','restorePreImport'],['preRestore','restorePreRestore'],['preUndo','restorePreUndo']] as const;
-  const falseSafe:string[]=[]; let checked=0;
+  const falseSafe:string[]=[];
+  const unexpectedConservative:string[]=[];
+  let checked=0, conservative=0;
+  const healthLabels=new Set(['missing','valid','unreadable']);
+  const readinessLabels=new Set(['ready','retry-with-preserved-pre-undo','no-op','missing-target',
+    'unreadable-target','unavailable-primary','protected-slot-conflict']);
+  const expectedSlotKeys=Object.keys(S).sort();
+  const expectedRestoreKeys=actions.map(([name])=>name).sort();
   for(let n=0;n<pool.length**5;n++){
     const pick=slots.map((_,i)=>pool[Math.floor(n/pool.length**i)%pool.length]);
     const mk=()=>{const s=new Store();slots.forEach((nm,i)=>{if(pick[i]!==null)s.v.set(S[nm],pick[i]!);});return s;};
@@ -35,15 +42,32 @@ test('preview never says safe when the live restore method would refuse (all slo
     assert.equal(probe.writes,0); assert.deepEqual(probe.v,before);
     const serialized=JSON.stringify(result);
     assert.ok(!serialized.includes('corrupt') && !serialized.includes('stardust') && !serialized.includes('schema'));
+    // Catch derived leaks too: every leaf must be an allowed enum and keys exact.
+    assert.deepEqual(Object.keys(result).sort(),['restores','slots']);
+    assert.deepEqual(Object.keys(result.slots).sort(),expectedSlotKeys);
+    assert.deepEqual(Object.keys(result.restores).sort(),expectedRestoreKeys);
+    for(const value of Object.values(result.slots))
+      assert.ok(typeof value==='string' && healthLabels.has(value));
+    for(const value of Object.values(result.restores))
+      assert.ok(typeof value==='string' && readinessLabels.has(value));
     for(const [key,method] of actions){
       checked++;
       const label=result.restores[key];
-      if(!['ready','retry-with-preserved-pre-undo','no-op'].includes(label)) continue;
       let ok=false;
       try{const inst=new StandardProgression(mk(),catalog,policy,idf);(inst as any)[method]();ok=true;}catch{}
-      if(!ok) falseSafe.push(`${JSON.stringify(pick.map(x=>x===null?'null':x.slice(0,8)))} ${method} -> ${label}`);
+      const safe=['ready','retry-with-preserved-pre-undo','no-op'].includes(label);
+      if(safe && !ok)
+        falseSafe.push(`${JSON.stringify(pick.map(x=>x===null?'null':x.slice(0,8)))} ${method} -> ${label}`);
+      if(!safe && ok) {
+        conservative++;
+        // Tolerate a fresh-profile initialization only when both are missing.
+        if(pick[0]!==null || pick[1]!==null)
+          unexpectedConservative.push(`${JSON.stringify(pick.map(x=>x===null?'null':x.slice(0,8)))} ${method} -> ${label}`);
+      }
     }
   }
   assert.ok(checked>=12500);
   assert.deepEqual(falseSafe,[]);
+  assert.deepEqual(unexpectedConservative,[]);
+  assert.equal(conservative,225,'unexpected change in conservative preview/live mismatches');
 });
