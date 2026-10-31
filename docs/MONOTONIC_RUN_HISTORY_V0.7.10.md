@@ -22,3 +22,11 @@ This is a reversible development checkpoint, not a general compact/archival impo
 `test/monotonic-run-ids.test.ts` covers opt-in confirmation, retained legacy replay IDs, normal and abandoned new tickets, reload, pending migration refusal, seed collisions, malformed metadata, counter exhaustion and stale-instance guard. Claude v0.7.9 N1 test fix also checks all six emergency recovery slots including real NUL, genuine lone surrogate and missing-vs-empty data. Exact-head CI and Claude independent review required before merge.
 
 **F3/F4 NOT FIXED; no import/consent UX, no APK; overall estimate ~14%.**
+
+## October 31, 2026 compatibility warning (Claude PR #14 N2/N3)
+
+**Existing restore/rollback risk:** `restoreBackup`, other restore paths and an intentionally confirmed import can restore an earlier monotonic counter. An ID such as `r2:seed:0` can then be minted again. An external in-flight ticket from the older timeline could accidentally match a ticket in the restored timeline. Any future UI must **invalidate all old in-flight gameplay/tickets and reload the fresh profile** after any import/restore, and should consider generation/namespace rotation before integrating gameplay. There is no general replay/rollback fix here.
+
+**Older build downgrade risk:** pre-v0.7.10 code rejects the extra `runSequence` field but still sees `schema:1` and a matching `sourceVersion`. Its `recoverCorruptPrimary` may therefore misclassify the opted-in profile as corrupt, quarantine it and recover the older legacy backup. This preserves raw opted-in bytes in quarantine, but is **not** a safe or automatic downgrade/migration. Keep an independent export, avoid old-build recovery on new saves, and require a versioned migration before releasing a UI.
+
+**v0.7.11 import guard:** `importSave` replaces all state fields instead of merging optional fields. Importing an opted-in profile into legacy mode, importing legacy into opted-in mode, changing namespace or counter requires explicit `confirmRunIdModeChange: true`, in addition to `replace: true` when there is existing progress. This is only an acknowledgment; no UI exists and it cannot make a deliberate old-snapshot rollback replay-proof.
