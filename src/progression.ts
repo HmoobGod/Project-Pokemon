@@ -32,6 +32,8 @@ export interface RewardPolicy {
   calculateRunStardust(report: Readonly<RunReport>, map: string, mode: RunTicket['mode']): number;
 }
 export interface RunTicket { id: string; map: string; mode: 'classic' | 'other' }
+/** Opt-in, monotonic run IDs; the v1 processedRuns history stays untouched. */
+export interface RunSequence { namespace: string; next: number }
 export interface SaveState {
   schema: 1;
   sourceVersion: string;
@@ -47,6 +49,8 @@ export interface SaveState {
   mapsWon: string[];
   processedRuns: string[];
   pendingRuns: RunTicket[];
+  /** Omitted on legacy saves. Explicit opt-in stops NEW run-history growth. */
+  runSequence?: RunSequence;
 }
 export class ProgressionError extends Error {}
 /** A defensive bound until the exact upstream multi-run contract is verified. */
@@ -168,7 +172,7 @@ export function parseSave(raw: string, expectedVersion: string): SaveState {
   let data: unknown;
   try { data = JSON.parse(raw); } catch {throw new ProgressionError('Save JSON is corrupt; primary save left unchanged');}
   if (!isRecord(data) || data.schema !== 1 || data.sourceVersion !== expectedVersion) throw new ProgressionError('Incompatible save schema or game version');
-  const permittedFields = new Set(['schema','sourceVersion','starter','stardust','totalStardust','pokemonUnlocked','pokemonSeen','lab','itemsOwned','questsClaimed','counters','mapsWon','processedRuns','pendingRuns']);
+  const permittedFields = new Set(['schema','sourceVersion','starter','stardust','totalStardust','pokemonUnlocked','pokemonSeen','lab','itemsOwned','questsClaimed','counters','mapsWon','processedRuns','pendingRuns','runSequence']);
   if (Object.keys(data).some(key => !permittedFields.has(key))) throw new ProgressionError('Unsupported save field');
   if (data.starter !== null) asInteger(data.starter,'starter');
   asInteger(data.stardust,'stardust');asInteger(data.totalStardust,'totalStardust');
@@ -192,6 +196,24 @@ export function parseSave(raw: string, expectedVersion: string): SaveState {
   }
   const ids = (data.pendingRuns as RunTicket[]).map(t=>t.id);
   if (new Set(ids).size!==ids.length || ids.some(id=>(data.processedRuns as string[]).includes(id))) throw new ProgressionError('Duplicate or replayed run ticket');
+  if (data.runSequence !== undefined) {
+    const sequence=data.runSequence;
+    if (!isRecord(sequence) || Object.keys(sequence).sort().join(',')!=='namespace,next' ||
+        typeof sequence.namespace!=='string' ||
+        !/^r2:[A-Za-z0-9_-]{1,128}:$/.test(sequence.namespace) ||
+        !Number.isSafeInteger(sequence.next) || (sequence.next as number)<0)
+      throw new ProgressionError('Invalid monotonic run sequence');
+    const prefix=sequence.namespace as string, next=sequence.next as number;
+    if ((data.processedRuns as string[]).some(id=>id.startsWith(prefix)))
+      throw new ProgressionError('Monotonic namespace collides with existing run history');
+    for (const id of ids) {
+      if (!id.startsWith(prefix)) throw new ProgressionError('Legacy pending ticket in monotonic mode');
+      const suffix=id.slice(prefix.length);
+      if (!/^(0|[1-9][0-9]*)$/.test(suffix) ||
+          !Number.isSafeInteger(Number(suffix)) || Number(suffix)>=next)
+        throw new ProgressionError('Invalid monotonic pending ticket');
+    }
+  }
   return data as unknown as SaveState;
 }
 
@@ -300,6 +322,25 @@ export class StandardProgression {
     if (this.state.starter!==null) throw new ProgressionError('Starter already selected');
     return this.commit(s=>{s.starter=id;s.pokemonUnlocked.push(id);s.pokemonSeen.push(id);});
   }
+  /**
+   * Explicit, non-destructive opt-in: keeps ALL previously processed legacy IDs,
+   * but uses a persisted monotonic namespace/counter for future tickets.
+   * Does not compress, truncate or rewrite legacy run history.
+   */
+  enableMonotonicRunIds(options: {backupConfirmed?: boolean} = {}): SaveState {
+    if (!options.backupConfirmed)
+      throw new ProgressionError('Export and confirm a backup before enabling monotonic run IDs');
+    if (this.state.runSequence) throw new ProgressionError('Monotonic run IDs already enabled');
+    if (this.state.starter===null) throw new ProgressionError('Choose a starter first');
+    if (this.state.pendingRuns.length) throw new ProgressionError('Finish or abandon pending runs before enabling monotonic IDs');
+    const seed=this.idFactory();
+    if (typeof seed!=='string' || !/^[A-Za-z0-9_-]{1,128}$/.test(seed))
+      throw new ProgressionError('Invalid monotonic run namespace seed');
+    const namespace=`r2:${seed}:`;
+    if (this.state.processedRuns.some(id=>id.startsWith(namespace)))
+      throw new ProgressionError('Monotonic namespace collides with old run IDs; retry with a new seed');
+    return this.commit(s=>{s.runSequence={namespace,next:0};});
+  }
   beginRun(map: string, mode: 'classic' | 'other' = 'classic'): RunTicket {
     if (this.state.starter===null) throw new ProgressionError('Choose a starter first');
     const m=this.catalog.maps.find(x=>x.id===map);
@@ -307,10 +348,18 @@ export class StandardProgression {
     if (m.requiresWinOf && !this.state.mapsWon.includes(m.requiresWinOf)) throw new ProgressionError('Map is locked');
     if (this.state.pendingRuns.length >= MAX_PENDING_RUNS)
       throw new ProgressionError('Too many pending run tickets');
-    const id=this.idFactory();nonemptyString(id,'ticket id');
-    if ([...this.state.pendingRuns.map(r=>r.id),...this.state.processedRuns].includes(id)) throw new ProgressionError('Repeated run ID');
+    const sequence=this.state.runSequence;
+    if (sequence && sequence.next>=Number.MAX_SAFE_INTEGER)
+      throw new ProgressionError('Monotonic ticket counter exhausted; export progress before proceeding');
+    const id=sequence ? `${sequence.namespace}${sequence.next}` : this.idFactory();
+    nonemptyString(id,'ticket id');
+    if ([...this.state.pendingRuns.map(r=>r.id),...this.state.processedRuns].includes(id))
+      throw new ProgressionError('Repeated run ID');
     const ticket:RunTicket={id,map,mode};
-    this.commit(s=>{s.pendingRuns.push(ticket);});
+    this.commit(s=>{
+      if (s.runSequence) s.runSequence.next++;
+      s.pendingRuns.push(ticket);
+    });
     return jsonCopy(ticket);
   }
   /** Permanently consumes a pending ticket WITHOUT crediting a run, reward or achievement. */
@@ -320,8 +369,9 @@ export class StandardProgression {
       throw new ProgressionError('Unknown or already processed run ticket');
     return this.commit(state => {
       state.pendingRuns = state.pendingRuns.filter(ticket=>ticket.id!==ticketId);
-      // The consumed ID must not be credited/reused after a reload.
-      state.processedRuns.push(ticketId);
+      // In monotonic mode, the persisted next counter permanently prevents reuse.
+      // Legacy mode retains its original full consumed-ID log.
+      if (!state.runSequence) state.processedRuns.push(ticketId);
     });
   }
   finishRun(ticketId: string, report: RunReport): {state: SaveState; earned: number} {
@@ -336,7 +386,7 @@ export class StandardProgression {
     const earned=asInteger(this.policy.calculateRunStardust(jsonCopy(report),ticket.map,ticket.mode),'run reward');
     const state=this.commit(s=>{
       s.pendingRuns=s.pendingRuns.filter(t=>t.id!==ticketId);
-      s.processedRuns.push(ticketId);
+      if (!s.runSequence) s.processedRuns.push(ticketId);
       s.counters.runs=add(s.counters.runs??0,1);
       if (report.victory) {
         if (ticket.mode === 'classic') s.mapsWon=unique([...s.mapsWon,ticket.map]);

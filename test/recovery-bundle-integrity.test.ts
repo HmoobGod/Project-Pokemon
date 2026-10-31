@@ -13,9 +13,11 @@ class Store implements StorageLike {
 }
 test('SHA-256 bundle preserves exact raw Standard bytes, empty strings, null and future data',async()=>{
   const s=new Store();
-  const specimens=['{bad','', ' \\u0000 Ω 😀 ','null','\uD800','{"schema":999}'];
-  for(const [i,key] of Object.values(S).entries())s.values.set(key,specimens[i]);
-  s.values.delete(S.preUndo); // preserve null distinct from empty
+  // All SIX slots are checked. Escape sequences produce real NUL and a
+  // real unpaired surrogate at runtime; preUndo remains absent (null).
+  const specimens:(string|null)[]=['{bad','',' \u0000 Ω 😀 ','\uD800',null,'null'];
+  const keys=Object.keys(S) as Array<keyof typeof S>;
+  for(const [i,key] of keys.entries())if(specimens[i]!==null)s.values.set(S[key],specimens[i]!);
   s.values.set('pokebonk.local.profile.v1','foreign-edition');
   const before=new Map(s.values);
   const encoded=await exportChecksummedRecoveryBundle(s);
@@ -23,10 +25,10 @@ test('SHA-256 bundle preserves exact raw Standard bytes, empty strings, null and
   assert.equal(envelope.kind,'project-pokemon.standard.raw-recovery.sha256');
   assert.match(envelope.sha256,/^[0-9a-f]{64}$/);
   const restored=await parseChecksummedRecoveryBundle(encoded);
-  assert.equal(restored.slots.primary,specimens[0]);
-  assert.equal(restored.slots.backup,'');
-  assert.equal(restored.slots.preUndo,null);
-  assert.equal(restored.slots.quarantine,specimens[5]);
+  for(const [i,key] of keys.entries())
+    assert.equal(restored.slots[key],specimens[i],`raw slot changed: ${key}`);
+  assert.ok(restored.slots.preImport!.includes('\u0000'),'real NUL not exercised');
+  assert.equal(restored.slots.preRestore!.charCodeAt(0),0xD800,'lone surrogate not exercised');
   assert.deepEqual(s.values,before);assert.equal(s.writes,0);
   assert.equal(s.reads.length,18,'two snapshot passes + post-hash verification');
   assert.ok(s.reads.every(k=>Object.values(S).includes(k as never)));

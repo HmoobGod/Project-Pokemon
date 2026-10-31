@@ -70,3 +70,8 @@ No playable Android APK exists. These are engineering estimates, not measured fu
 - v0.7.9 introduces read-only `exportChecksummedRecoveryBundle` and `parseChecksummedRecoveryBundle` wrapping the unchanged raw six-slot bundle inside a SHA-256 integrity envelope. No import, restore, deletion or overwrite API added, and older exported wire data remains available.
 - Three Standard-only read passes flag observed changes including during async hashing. Checksummed parser rejects modified bytes, bad hashes, unsupported envelope or invalid inner slot shape. SHA-256 alone is not authenticity protection.
 - Includes Claude PR #12 N1/N2 test follow-ups within the substantive checksum PR. Exact-head push and PR CI plus independent Claude review required before merge. F3/F4 NOT FIXED; no gameplay/Android APK. Overall ~14% estimated.
+
+## v0.7.9 independently approved and merged; v0.7.10 candidate — October 30, 2026
+- New merged main `42f25ab1589280f9714675541271c7590fdc831d`, PR #13 SHA-256 recovery envelope independently Claude-approved at reviewed head `2bc4198a88dcf240c631bf3bb3477c6d3f012194`, 110/110 source tests PASS.
+- v0.7.10 opts into persistent monotonic run IDs, no more growth of **new** processedRuns entries; previously consumed legacy ID list is retained without truncation. Existing old saves load normally; opting in requires backup acknowledgment and no pending runs. The optional new `runSequence` field can be rejected by older builds: opt-in only, no transparent migration. Counter overflow refuses safely.
+- Claude v0.7.9 N1 test expansion checks every emergency slot and real NUL/lone-surrogate data. Further F3/F4 export/confirmation UX and safe import are still missing. Estimated overall APK 14%, device/gameplay 0%.

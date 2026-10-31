@@ -12,7 +12,7 @@ Original client rules ██████░░░░░░░░░░░░░�
 Gameplay / Android    ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-**Latest merged: v0.7.8 PR #12 at `7f098716d563beb9e8b4b38476b13837d7cff88b`; v0.7.9 checksum is an unmerged source-only candidate.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
+**Latest merged: v0.7.9 PR #13 at `42f25ab1589280f9714675541271c7590fdc831d`; v0.7.10 opt-in run history is an unmerged source-only candidate.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
 
 See [full progress](docs/PROGRESS.md), [v0.7 technical details](docs/SAVE_RECOVERY_V0.7.md), and [Claude review request](docs/CLAUDE_REVIEW_V0.7.md).
 
@@ -59,3 +59,7 @@ The new `assessCorruptPrimaryReadiness` previews the **existing** static corrupt
 ## v0.7.9 candidate — SHA-256 integrity for lossless emergency bundles
 
 Adds a **new** read-only checksummed envelope for the existing six-slot raw recovery export, plus a verifying parser. Both are export/check-only: no storage write, no import UI, no overwrite and no bundle restore. The earlier unchecksummed export format and existing saves are unchanged. See [checksum safety note](docs/BUNDLE_SHA256_V0.7.9.md). Also strengthens the already-merged corrupt-primary parity test with a simultaneous future schema/version scenario. F3/F4 remain NOT FIXED; no APK.
+
+## v0.7.10 source candidate — monotonic ticket IDs
+
+Opt-in `enableMonotonicRunIds({backupConfirmed:true})` uses persisted sequential ticket IDs so **newly consumed IDs no longer append to the legacy processedRuns array**. It never trims prior processed history, and refusing an old ID remains enforced. Old profiles continue to work without an automatic migration. A verified external backup is advised before explicitly opting in; the option is only an acknowledgment and there is no player-facing UI. See [safety and migration notes](docs/MONOTONIC_RUN_HISTORY_V0.7.10.md). Claude v0.7.9 N1 regression also strengthens checks across all six backup slots. F3/F4 still open, no APK.
