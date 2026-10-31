@@ -266,7 +266,7 @@ export class StandardProgression {
     return JSON.stringify(envelope);
   }
   /** Import is opt-in. Replacing existing progress must be explicitly requested. */
-  async importSave(input: string, options: {replace?: boolean} = {}): Promise<SaveState> {
+  async importSave(input: string, options: {replace?: boolean; confirmRunIdModeChange?: boolean} = {}): Promise<SaveState> {
     this.requireFreshWriter();
     let json: unknown;
     try {json = JSON.parse(input);} catch {throw new ProgressionError('Malformed save export JSON');}
@@ -282,6 +282,18 @@ export class StandardProgression {
     const existing = this.storage.getItem(this.key);
     if ((existing !== null || this.state.starter !== null) && !options.replace)
       throw new ProgressionError('Existing progress requires explicit replace option');
+    // Never silently enable/disable or roll back a persisted run namespace.
+    // A backup acknowledgment is required separately for first-time opt-in;
+    // importing a snapshot is NOT the same operation as enabling a new namespace.
+    const activeSequence=this.state.runSequence;
+    const incomingSequence=imported.runSequence;
+    const differentRunModeOrSequence =
+      (activeSequence===undefined)!==(incomingSequence===undefined) ||
+      (activeSequence!==undefined && incomingSequence!==undefined &&
+        (activeSequence.namespace!==incomingSequence.namespace ||
+         activeSequence.next!==incomingSequence.next));
+    if (differentRunModeOrSequence && options.confirmRunIdModeChange!==true)
+      throw new ProgressionError('Run-ID mode or sequence change requires explicit confirmation');
     this.requireFreshWriter();
     // A replacement cannot silently discard a previous pre-import snapshot.
     // If a prior import was interrupted, retrying the SAME primary is safe.
@@ -294,7 +306,13 @@ export class StandardProgression {
       validateStateAgainstCatalog(parseSave(existing,this.catalog.sourceVersion),this.catalog);
       this.storage.setItem(this.preImportKey,existing);
     }
-    return this.commit(state => {Object.assign(state, imported);});
+    // Object.assign alone retains absent optional fields like runSequence,
+    // producing a hybrid old/new profile. Replace every state field atomically
+    // inside the existing guarded commit, while preserving pre-import rescue.
+    return this.commit(state => {
+      for (const key of Object.keys(state)) Reflect.deleteProperty(state,key);
+      Object.assign(state,imported);
+    });
   }
   private commit(change: (next: SaveState) => void): SaveState {
     const previous = this.storage.getItem(this.key);
@@ -328,7 +346,7 @@ export class StandardProgression {
    * Does not compress, truncate or rewrite legacy run history.
    */
   enableMonotonicRunIds(options: {backupConfirmed?: boolean} = {}): SaveState {
-    if (!options.backupConfirmed)
+    if (options.backupConfirmed !== true)
       throw new ProgressionError('Export and confirm a backup before enabling monotonic run IDs');
     if (this.state.runSequence) throw new ProgressionError('Monotonic run IDs already enabled');
     if (this.state.starter===null) throw new ProgressionError('Choose a starter first');

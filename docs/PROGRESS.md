@@ -75,3 +75,7 @@ No playable Android APK exists. These are engineering estimates, not measured fu
 - New merged main `42f25ab1589280f9714675541271c7590fdc831d`, PR #13 SHA-256 recovery envelope independently Claude-approved at reviewed head `2bc4198a88dcf240c631bf3bb3477c6d3f012194`, 110/110 source tests PASS.
 - v0.7.10 opts into persistent monotonic run IDs, no more growth of **new** processedRuns entries; previously consumed legacy ID list is retained without truncation. Existing old saves load normally; opting in requires backup acknowledgment and no pending runs. The optional new `runSequence` field can be rejected by older builds: opt-in only, no transparent migration. Counter overflow refuses safely.
 - Claude v0.7.9 N1 test expansion checks every emergency slot and real NUL/lone-surrogate data. Further F3/F4 export/confirmation UX and safe import are still missing. Estimated overall APK 14%, device/gameplay 0%.
+
+## v0.7.10 merged, v0.7.11 import safety candidate — October 31, 2026
+- PR #14 independently Claude-approved, 115/115 tests and strict TypeScript PASSED; main `aa3d938982f4218f6aa3d9f40d50d6c6e780b153`.
+- v0.7.11 fixes the optional `runSequence` field leaking through Object.assign during manual imports by fully replacing state, and requires explicit true confirmation before importing across mode, namespace or sequence counter; strict true for backupConfirmed. Adds malformed-ticket validation tests and documents restore/old-build hazards. No UI, F3/F4 resolution, Android APK, or source-version migration. Overall ~14% estimated.
