@@ -15,7 +15,7 @@ test('SHA-256 bundle preserves exact raw Standard bytes, empty strings, null and
   const s=new Store();
   // All SIX slots are checked. Escape sequences produce real NUL and a
   // real unpaired surrogate at runtime; preUndo remains absent (null).
-  const specimens:(string|null)[]=['{bad','',' \\u0000 Ω 😀 ','\\uD800',null,'null'];
+  const specimens:(string|null)[]=['{bad','',' \u0000 Ω 😀 ','\uD800',null,'null'];
   const keys=Object.keys(S) as Array<keyof typeof S>;
   for(const [i,key] of keys.entries())if(specimens[i]!==null)s.values.set(S[key],specimens[i]!);
   s.values.set('pokebonk.local.profile.v1','foreign-edition');
@@ -27,7 +27,7 @@ test('SHA-256 bundle preserves exact raw Standard bytes, empty strings, null and
   const restored=await parseChecksummedRecoveryBundle(encoded);
   for(const [i,key] of keys.entries())
     assert.equal(restored.slots[key],specimens[i],`raw slot changed: ${key}`);
-  assert.ok(restored.slots.preImport!.includes('\\u0000'),'real NUL not exercised');
+  assert.ok(restored.slots.preImport!.includes('\u0000'),'real NUL not exercised');
   assert.equal(restored.slots.preRestore!.charCodeAt(0),0xD800,'lone surrogate not exercised');
   assert.deepEqual(s.values,before);assert.equal(s.writes,0);
   assert.equal(s.reads.length,18,'two snapshot passes + post-hash verification');
