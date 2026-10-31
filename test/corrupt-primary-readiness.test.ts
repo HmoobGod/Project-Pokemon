@@ -56,3 +56,25 @@ test('corrupt primary preview recognizes schema, quarantine and backup guards',(
       if(raw!==null)assert.ok(!JSON.stringify(output).includes(raw));
   }
 });
+
+test('corrupt primary parity matrix includes occupied quarantine on every variant',()=>{
+  const {a,b}=fixture();
+  const primaryCases=[null,a,'{bad',JSON.stringify({...JSON.parse(a),schema:2}),
+    JSON.stringify({...JSON.parse(a),sourceVersion:'later'})];
+  const backupCases=[null,a,b,'{bad'];
+  let total=0,successes=0;
+  for(const primary of primaryCases)for(const backup of backupCases)
+    for(const quarantine of [null,primary,'older-rescue']){
+      total++;
+      const readOnly=store(primary,backup,quarantine),prior=new Map(readOnly.data);
+      const preview=assessCorruptPrimaryReadiness(readOnly,catalog);
+      assert.equal(readOnly.writes,0);assert.deepEqual(readOnly.data,prior);
+      const live=store(primary,backup,quarantine);let succeeded=false;
+      try{StandardProgression.recoverCorruptPrimary(live,catalog);succeeded=true;}
+      catch(error){assert.ok(error instanceof ProgressionError);}
+      assert.equal(preview.recovery.startsWith('ready-'),succeeded,preview.recovery);
+      if(succeeded)successes++;
+      assert.equal(live.getItem('pokebonk.local.profile.v1'),'other-edition');
+    }
+  assert.equal(total,60);assert.ok(successes>0);
+});
