@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {StandardProgression,type Catalog,type RewardPolicy,type StorageLike} from '../src/progression.ts';
+import {StandardProgression,ProgressionError,type Catalog,type RewardPolicy,type StorageLike} from '../src/progression.ts';
 import {STANDARD_RECOVERY_SLOTS as S} from '../src/recovery-bundle.ts';
 import {assessCorruptPrimaryReadiness} from '../src/corrupt-primary-readiness.ts';
 
@@ -46,6 +46,12 @@ test('corrupt primary preview recognizes schema, quarantine and backup guards',(
     const output=assessCorruptPrimaryReadiness(s,catalog);
     assert.equal(output.recovery,expected);
     assert.equal(s.writes,0);assert.deepEqual(s.data,before);
+    const live=store(primary,backup,quarantine);let succeeded=false;
+    try{StandardProgression.recoverCorruptPrimary(live,catalog);succeeded=true;}
+    catch(error){assert.ok(error instanceof ProgressionError);}
+    assert.equal(succeeded,expected.startsWith('ready-'));
+    if(succeeded){assert.equal(live.getItem(S.primary),backup);assert.equal(live.getItem(S.quarantine),primary??quarantine);}
+    else assert.deepEqual(live.data,before);
     for(const raw of [primary,backup,quarantine])
       if(raw!==null)assert.ok(!JSON.stringify(output).includes(raw));
   }
