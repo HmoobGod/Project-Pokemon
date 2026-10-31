@@ -64,3 +64,9 @@ No playable Android APK exists. These are engineering estimates, not measured fu
 - v0.7.7 candidate: add non-mutating preflight for `recoverCorruptPrimary`, explicitly distinguishing future-schema/source-version data and backup/quarantine state. Compare against real static recovery on stable cloned slots. Include observed-race and read-error failure probes.
 - Recovery previews do not grant consent, overwrite profiles, handle simultaneous tabs atomically, or fix F3/F4. Independent exact-head CI and Claude review required before merge.
 - Progress estimate unchanged: overall APK ~14%; original gameplay, Android build and device tests remain unverified or 0%.
+
+## v0.7.8 merged; v0.7.9 additive checksum candidate — October 30, 2026
+- PR #11 and PR #12 independently reviewed, approved and merged; latest verified `main` at branch creation: `7f098716d563beb9e8b4b38476b13837d7cff88b`.
+- v0.7.9 introduces read-only `exportChecksummedRecoveryBundle` and `parseChecksummedRecoveryBundle` wrapping the unchanged raw six-slot bundle inside a SHA-256 integrity envelope. No import, restore, deletion or overwrite API added, and older exported wire data remains available.
+- Three Standard-only read passes flag observed changes including during async hashing. Checksummed parser rejects modified bytes, bad hashes, unsupported envelope or invalid inner slot shape. SHA-256 alone is not authenticity protection.
+- Includes Claude PR #12 N1/N2 test follow-ups within the substantive checksum PR. Exact-head push and PR CI plus independent Claude review required before merge. F3/F4 NOT FIXED; no gameplay/Android APK. Overall ~14% estimated.
