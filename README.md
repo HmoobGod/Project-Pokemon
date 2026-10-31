@@ -12,7 +12,7 @@ Original client rules ██████░░░░░░░░░░░░░�
 Gameplay / Android    ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-**Latest merged: v0.7.4 PR #8 at `fbe0c34542ab589940977fe655845d51dfb45933`; v0.7.5 parity test PR is a separate unmerged source-only candidate.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
+**Latest merged: v0.7.6 PR #10 at `9659ec7b61631c7635658fa89e8ecba35e6c8448`; v0.7.7 corrupt-primary preview is an unmerged source-only candidate.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
 
 See [full progress](docs/PROGRESS.md), [v0.7 technical details](docs/SAVE_RECOVERY_V0.7.md), and [Claude review request](docs/CLAUDE_REVIEW_V0.7.md).
 
@@ -50,4 +50,8 @@ This preflight classifies the six Standard recovery slots and previews whether a
 
 ## v0.7.5 source-only regression candidate — recovery-preview parity
 
-Preserves Claude's independent 3,125 storage-combination / 12,500 restore-action differential regression as `test/recovery-parity.test.ts`. Strengthens the existing no-leak assertion to compare the entire serialized preview against actual stored raw save contents. This is test-only and does not change restore logic, save formats, rewards or unlocks. It requires exact-head CI and independent Claude review before merge. F3/F4 remain open; no APK.
+Preserves Claude's independent 3,125 storage-combination / 12,500 restore-action differential regression as `test/recovery-parity.test.ts`. Strengthens the existing no-leak assertion to compare the entire serialized preview against actual stored raw save contents. This is test-only and does not change restore logic, save formats, rewards or unlocks. PR #9 independently approved and merged into v0.7.5 main; v0.7.6 PR #10 also approved and merged, adding enum/shape and conservative parity checks. F3/F4 remain open; no APK.
+
+## v0.7.7 candidate — read-only corrupt-primary recovery readiness
+
+The new `assessCorruptPrimaryReadiness` previews the **existing** static corruption-recovery path: distinguish a missing, healthy, malformed or incompatible-version primary; verify backup and quarantine conflicts before an actual recovery attempt. It uses get-only storage, returns no saved bytes, and performs NO restore/import/clear or writes. See [technical note](docs/CORRUPT_PRIMARY_PREFLIGHT_V0.7.7.md) and [Claude review instructions](docs/CLAUDE_REVIEW_V0.7.7.md). F3/F4 remain NOT FIXED. There is no APK or gameplay/device verification.
