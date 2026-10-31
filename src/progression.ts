@@ -327,7 +327,9 @@ export class StandardProgression {
    * but uses a persisted monotonic namespace/counter for future tickets.
    * Does not compress, truncate or rewrite legacy run history.
    */
-  enableMonotonicRunIds(): SaveState {
+  enableMonotonicRunIds(options: {backupConfirmed?: boolean} = {}): SaveState {
+    if (!options.backupConfirmed)
+      throw new ProgressionError('Export and confirm a backup before enabling monotonic run IDs');
     if (this.state.runSequence) throw new ProgressionError('Monotonic run IDs already enabled');
     if (this.state.starter===null) throw new ProgressionError('Choose a starter first');
     if (this.state.pendingRuns.length) throw new ProgressionError('Finish or abandon pending runs before enabling monotonic IDs');
