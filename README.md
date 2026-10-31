@@ -12,7 +12,7 @@ Original client rules ██████░░░░░░░░░░░░░�
 Gameplay / Android    ░░░░░░░░░░░░░░░░░░░░   0%
 ```
 
-**Latest merged: v0.7.6 PR #10 at `9659ec7b61631c7635658fa89e8ecba35e6c8448`; v0.7.7 corrupt-primary preview is an unmerged source-only candidate.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
+**Latest merged: v0.7.8 PR #12 at `7f098716d563beb9e8b4b38476b13837d7cff88b`; v0.7.9 checksum is an unmerged source-only candidate.** v0.6 was merged following independent review; v0.7 adds preservation of progress made after a restore, explicit quarantine cleanup and recovery-race checks.
 
 See [full progress](docs/PROGRESS.md), [v0.7 technical details](docs/SAVE_RECOVERY_V0.7.md), and [Claude review request](docs/CLAUDE_REVIEW_V0.7.md).
 
@@ -55,3 +55,7 @@ Preserves Claude's independent 3,125 storage-combination / 12,500 restore-action
 ## v0.7.7 candidate — read-only corrupt-primary recovery readiness
 
 The new `assessCorruptPrimaryReadiness` previews the **existing** static corruption-recovery path: distinguish a missing, healthy, malformed or incompatible-version primary; verify backup and quarantine conflicts before an actual recovery attempt. It uses get-only storage, returns no saved bytes, and performs NO restore/import/clear or writes. See [technical note](docs/CORRUPT_PRIMARY_PREFLIGHT_V0.7.7.md) and [Claude review instructions](docs/CLAUDE_REVIEW_V0.7.7.md). F3/F4 remain NOT FIXED. There is no APK or gameplay/device verification.
+
+## v0.7.9 candidate — SHA-256 integrity for lossless emergency bundles
+
+Adds a **new** read-only checksummed envelope for the existing six-slot raw recovery export, plus a verifying parser. Both are export/check-only: no storage write, no import UI, no overwrite and no bundle restore. The earlier unchecksummed export format and existing saves are unchanged. See [checksum safety note](docs/BUNDLE_SHA256_V0.7.9.md). Also strengthens the already-merged corrupt-primary parity test with a simultaneous future schema/version scenario. F3/F4 remain NOT FIXED; no APK.
