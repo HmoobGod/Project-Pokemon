@@ -48,7 +48,13 @@ No playable Android APK exists. These are engineering estimates, not measured fu
 - Overall APK estimate remains 14%; gameplay/Android/device tests still 0%.
 
 ## v0.7.4 read-only recovery preflight candidate — October 30, 2026
-- New PR #8 is rebased directly on merged v0.7.3 main `1ff42dc9e2591b8234e6de4888ef63aee59a6e39`. This PR remains unmerged pending new exact-head CI and independent review.
+- New PR #8 is rebased directly on merged v0.7.3 main `1ff42dc9e2591b8234e6de4888ef63aee59a6e39`. PR #8 passed independent Claude APPROVE / MERGE YES at head `21b39210b4c485804b6161d70fbba94fda2e89e7` and merged at `fbe0c34542ab589940977fe655845d51dfb45933`. F3/F4 are still NOT fixed.
 - Read-only Standard slot health and action preview: no write, read-only inspection, no raw save bytes returned. Actual restore/clear/import remains unchanged.
 - F3 failed-undo retry and F4 blocked redo tests demonstrate **preflight recognition only**. They do NOT fix F3 or F4; no user-facing resolution UX exists.
 - No original client/assets, official reward parity, Android APK, on-device gameplay or migration completed. Estimated overall APK progress remains 14%.
+
+## v0.7.5 recovery-parity regression candidate — October 30, 2026
+- Base: merged v0.7.4 main `fbe0c34542ab589940977fe655845d51dfb45933`.
+- Add attached Claude differential test covering 3,125 storage combinations and 12,500 restore preview/action comparisons. A safe preview must not be refused by the corresponding live mutator on stable storage.
+- Replace weak `Object.hasOwn(result,'raw')` check with serialized result scan for actual saved bytes, and verify result's top-level shape.
+- No change to runtime progression / restoration, no recovery import, no UI, no APK or gameplay/device tests. F3 and F4 remain open; overall estimated APK completion stays 14%.
