@@ -25,8 +25,9 @@ test('opt-in preserves legacy run history and stops its growth for finished/aban
  const p=open(s,id);p.chooseStarter(1);
  finish(p,p.beginRun('forest').id);finish(p,p.beginRun('forest').id);
  const prior=p.snapshot(),raw=s.getItem(p.key);
+ assert.throws(()=>p.enableMonotonicRunIds(),/Export and confirm a backup/);
  assert.equal(prior.processedRuns.length,2);
- const opted=p.enableMonotonicRunIds();
+ const opted=p.enableMonotonicRunIds({backupConfirmed:true});
  assert.deepEqual(opted.processedRuns,prior.processedRuns);
  assert.deepEqual(prior.processedRuns,['old-1','old-2']);
  assert.equal(opted.runSequence?.next,0);
@@ -54,15 +55,15 @@ test('opt-in preserves legacy run history and stops its growth for finished/aban
 
 test('enable is explicit, disallows old pending tickets and cannot be enabled twice',()=>{
  const s=new Store(),p=open(s,()=> 'seed');
- assert.throws(()=>p.enableMonotonicRunIds(),/Choose a starter/);
+ assert.throws(()=>p.enableMonotonicRunIds({backupConfirmed:true}),/Choose a starter/);
  p.chooseStarter(1);
  const pending=p.beginRun('forest');
  const before=s.getItem(p.key),writes=s.writes;
- assert.throws(()=>p.enableMonotonicRunIds(),/pending runs/);
+ assert.throws(()=>p.enableMonotonicRunIds({backupConfirmed:true}),/pending runs/);
  assert.equal(s.getItem(p.key),before);assert.equal(s.writes,writes);
  p.abandonRun(pending.id);
- p.enableMonotonicRunIds();
- assert.throws(()=>p.enableMonotonicRunIds(),/already enabled/);
+ p.enableMonotonicRunIds({backupConfirmed:true});
+ assert.throws(()=>p.enableMonotonicRunIds({backupConfirmed:true}),/already enabled/);
  assert.deepEqual(p.snapshot().processedRuns,['seed']);
 });
 
@@ -70,7 +71,7 @@ test('namespace collisions fail closed and never erase historical replay protect
  const s=new Store(),p=open(s,()=> 'r2:collision:0');p.chooseStarter(1);
  finish(p,p.beginRun('forest').id);
  const reopened=open(s,()=> 'collision'),before=s.getItem(p.key),writes=s.writes;
- assert.throws(()=>reopened.enableMonotonicRunIds(),/collides with old run IDs/);
+ assert.throws(()=>reopened.enableMonotonicRunIds({backupConfirmed:true}),/collides with old run IDs/);
  assert.equal(s.getItem(p.key),before);assert.equal(s.writes,writes);
  const minted=open(s,()=> 'r2:collision:0');
  assert.throws(()=>minted.beginRun('forest'),/Repeated run ID/);
@@ -78,7 +79,7 @@ test('namespace collisions fail closed and never erase historical replay protect
 
 test('corrupted monotonic metadata, counterfeit pending IDs and namespace collisions are rejected',()=>{
  const s=new Store(),p=open(s,()=> 'seed');p.chooseStarter(1);
- p.enableMonotonicRunIds();
+ p.enableMonotonicRunIds({backupConfirmed:true});
  const raw=JSON.parse(s.getItem(p.key)!);
  const mutated=[
   {...raw,runSequence:{namespace:'r2:seed:',next:-1}},
@@ -98,7 +99,7 @@ test('corrupted monotonic metadata, counterfeit pending IDs and namespace collis
 
 test('monotonic counter exhaustion and stale-writer fail without issuing duplicate tickets',()=>{
  const s=new Store(),p=open(s,()=> 'epoch');p.chooseStarter(1);
- p.enableMonotonicRunIds();
+ p.enableMonotonicRunIds({backupConfirmed:true});
  const stale=open(s);
  const first=p.beginRun('forest');
  assert.throws(()=>stale.beginRun('forest'),/another session/);
