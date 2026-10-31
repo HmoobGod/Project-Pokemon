@@ -58,3 +58,9 @@ No playable Android APK exists. These are engineering estimates, not measured fu
 - Add attached Claude differential test covering 3,125 storage combinations and 12,500 restore preview/action comparisons. A safe preview must not be refused by the corresponding live mutator on stable storage.
 - Replace weak `Object.hasOwn(result,'raw')` check with serialized result scan for actual saved bytes, and verify result's top-level shape.
 - No change to runtime progression / restoration, no recovery import, no UI, no APK or gameplay/device tests. F3 and F4 remain open; overall estimated APK completion stays 14%.
+
+## v0.7.6 merged and v0.7.7 source-only candidate — October 30, 2026
+- v0.7.5 PR #9 and v0.7.6 PR #10 both independently Claude approved and merged. Latest verified merged main at creation: `9659ec7b61631c7635658fa89e8ecba35e6c8448`.
+- v0.7.7 candidate: add non-mutating preflight for `recoverCorruptPrimary`, explicitly distinguishing future-schema/source-version data and backup/quarantine state. Compare against real static recovery on stable cloned slots. Include observed-race and read-error failure probes.
+- Recovery previews do not grant consent, overwrite profiles, handle simultaneous tabs atomically, or fix F3/F4. Independent exact-head CI and Claude review required before merge.
+- Progress estimate unchanged: overall APK ~14%; original gameplay, Android build and device tests remain unverified or 0%.
