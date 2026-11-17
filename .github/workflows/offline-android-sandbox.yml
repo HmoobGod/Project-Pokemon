@@ -1,0 +1,73 @@
+name: Offline Android Sandbox APK - unverified demo
+
+on:
+  push:
+    paths:
+      - 'android-demo/**'
+      - 'offline-sandbox/**'
+      - '.github/workflows/offline-android-sandbox.yml'
+  pull_request:
+    paths:
+      - 'android-demo/**'
+      - 'offline-sandbox/**'
+      - '.github/workflows/offline-android-sandbox.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  debug-apk:
+    name: Build and inspect offline-only debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install pinned Android platform and build tools
+        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Gradle 8.11.1 (no checked-in binary wrapper)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Compile a disposable debug-signed Android APK
+        run: gradle --no-daemon -p android-demo :app:assembleDebug
+      - name: Verify application identity, declared permissions and exact local assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android-demo/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/offline-badging.txt
+          grep -F "package: name='org.projectpokemon.offlinesandbox'" /tmp/offline-badging.txt
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump permissions "$APK" | tee /tmp/offline-permissions.txt
+          if grep -Eq 'android.permission.(INTERNET|ACCESS_NETWORK_STATE)' /tmp/offline-permissions.txt; then
+            echo 'FAIL: network permission unexpectedly present' >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          apk = Path("android-demo/app/build/outputs/apk/debug/app-debug.apk")
+          with ZipFile(apk) as z:
+              for name in ("index.html", "engine.js", "app.js"):
+                  bundled = z.read("assets/" + name)
+                  source = Path("offline-sandbox", name).read_bytes()
+                  assert bundled == source, f"APK asset differs from source: {name}"
+                  assert bundled, f"Empty app asset: {name}"
+                  print(f"OK: exact local asset {name}: {len(bundled)} bytes")
+              assert not any(n.startswith("assets/") and n.endswith((".png",".jpg",".mp3",".ogg")) for n in z.namelist()), "Unexpected game art/audio"
+          PY
+          sha256sum "$APK"
+      - name: Upload temporary experiment only - not a game release
+        uses: actions/upload-artifact@v4
+        with:
+          name: UNVERIFIED-offline-sandbox-debug-${{ github.sha }}
+          path: android-demo/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
