@@ -16,6 +16,43 @@ permissions:
   contents: read
 
 jobs:
+  browser-smoke:
+    name: Render local sandbox in real headless Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Canvas, controls and pause/resume smoke over loopback only
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME=""
+          for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              CHROME=$(command -v "$candidate")
+              break
+            fi
+          done
+          if [ -z "$CHROME" ]; then
+            echo 'No Chromium/Chrome binary on runner; not a browser pass' >&2
+            exit 1
+          fi
+          "$CHROME" --version
+          python3 -m http.server 8765 --bind 127.0.0.1 >/tmp/offline-test-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          sleep 2
+          timeout 45 "$CHROME" --headless=new --no-sandbox --disable-gpu \
+            --disable-dev-shm-usage --disable-background-networking \
+            --virtual-time-budget=7000 \
+            --dump-dom "http://127.0.0.1:8765/test/offline-browser-smoke.html" \
+            > /tmp/offline-browser-dom.html 2>/tmp/offline-browser-stderr.log
+          if ! grep -F 'data-test-result="PASS"' /tmp/offline-browser-dom.html; then
+            tail -c 3000 /tmp/offline-browser-dom.html || true
+            tail -c 3000 /tmp/offline-browser-stderr.log || true
+            exit 1
+          fi
+          grep -F 'PASS: real Chromium canvas' /tmp/offline-browser-dom.html
   debug-apk:
     name: Build and inspect offline-only debug APK
     runs-on: ubuntu-latest
