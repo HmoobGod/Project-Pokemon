@@ -54,6 +54,10 @@ public final class OfflineSandboxActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Separate local metadata identity, not the live account or Standard save.
+        // Invalid existing local bytes stop startup rather than being reset.
+        OfflineSoloProfileStore.openOrCreate(this);
+
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN
                         | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
