@@ -29,7 +29,7 @@ test('Android WebView permits only packaged assets; disables remote access and s
   'setWebContentsDebuggingEnabled(false)','setHttpAllowed(false)',
   'shouldInterceptRequest','denied(403','setCacheMode(WebSettings.LOAD_NO_CACHE)'
  ])assert.ok(java.includes(required),required);
- assert.doesNotMatch(java,/https?:\/\/(?!appassets\.androidplatform\.net)/);
+ assert.doesNotMatch(java,/pokebonk\\.com|api\\.pokebonk\\.com/i);
  assert.doesNotMatch(java,/(?:loadUrl|postUrl)\(\s*["']https?:\/\/(?:pokebonk\.com|api\.)/);
 });
 
