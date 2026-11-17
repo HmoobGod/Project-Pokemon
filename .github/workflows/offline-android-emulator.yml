@@ -1,4 +1,4 @@
-name: Offline Android emulator - airplane mode runtime proof
+name: Offline Android emulator - macOS HVF airplane mode proof
 
 on:
   push:
@@ -17,9 +17,9 @@ permissions:
 
 jobs:
   airplane-mode-emulator:
-    name: Android API 35 local WebView in airplane mode (not device acceptance)
-    runs-on: ubuntu-latest
-    timeout-minutes: 55
+    name: macOS HVF Android API 29 offline WebView instrumentation
+    runs-on: macos-15-intel
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Java 17 for AGP 8.9.2
@@ -31,14 +31,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Note runner virtualization availability (optional)
+      - name: Verify macOS hardware-assisted emulator host
         shell: bash
         run: |
-          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
-            echo 'KVM usable; this job still selects software emulation for consistent CI evidence'
-          else
-            echo 'KVM unavailable on this runner; using software emulation'
-          fi
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          sysctl -n kern.hv_support | grep -x 1
+          echo 'Apple Hypervisor Framework supported; do not claim emulator test pass yet'
       - name: Actual emulator + Android WebView instrumentation with radios disabled
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -48,7 +47,7 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 750
           disable-animations: true
-          emulator-options: -accel off -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-options: -accel on -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           script: |
             set -euo pipefail
             adb wait-for-device
@@ -61,17 +60,73 @@ jobs:
             adb shell settings get global wifi_on
             echo 'Install and exercise disposable app + instrumentation APK on real emulator'
             gradle --no-daemon -p android-demo :app:connectedDebugAndroidTest
-            echo 'Proof: successful real Android instrumentation (not physical device)'
+            echo 'Verify the exact target test ran, not just a green or NO-SOURCE Gradle task'
+            python3 - <<'PY'
+            from pathlib import Path
+            import xml.etree.ElementTree as ET
+            results = Path('android-demo/app/build/outputs/androidTest-results/connected')
+            reports = sorted(results.rglob('TEST-*.xml')) if results.is_dir() else []
+            assert reports, 'No on-emulator Android JUnit XML found; not an Android pass'
+            seen = 0
+            for path in reports:
+                root = ET.parse(path).getroot()
+                cases = list(root.iter('testcase'))
+                for case in cases:
+                    if case.attrib.get('name') == 'realAndroidWebViewLoadsAndRunsEntirelyOffline':
+                        assert 'OfflineSandboxEmulatorTest' in case.attrib.get('classname',''), 'Unexpected test class'
+                        assert not any(c.tag in ('failure', 'error', 'skipped') for c in case), 'Test did not pass'
+                        seen += 1
+                assert int(root.attrib.get('failures',0)) == 0, 'Emulator test report has failures'
+                assert int(root.attrib.get('errors',0)) == 0, 'Emulator test report has errors'
+                print('Android test XML:',path,'cases:',len(cases))
+            assert seen == 1, f'Expected exactly one real Android WebView test; observed {seen}'
+            print('PASS: actual on-emulator WebView test XML, not a synthetic/empty build')
+            PY
+            test "$(adb shell settings get global airplane_mode_on | tr -d '\r')" = 1
+            echo 'Proof: successful real Android instrumentation while airplane mode remained enabled (not physical device)'
       - name: Capture emulator/AndroidJUnit evidence when available
         if: always()
         shell: bash
         run: |
           mkdir -p android-demo/emulator-evidence
-          if command -v adb >/dev/null 2>&1; then
-            adb devices -l > android-demo/emulator-evidence/adb-devices.txt || true
-            adb logcat -d -s 'AndroidRuntime:E' 'chromium:E' 'WebViewFactory:I' > android-demo/emulator-evidence/logcat.txt || true
-            adb exec-out screencap -p > android-demo/emulator-evidence/screenshot.png || true
-          fi
+          # adb can hang after a failed or half-booted emulator. Never let
+          # optional evidence capture keep a failed job alive indefinitely.
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import subprocess
+          out = Path('android-demo/emulator-evidence')
+          out.mkdir(parents=True, exist_ok=True)
+          if not shutil.which('adb'):
+              (out / 'capture-summary.txt').write_text('ADB unavailable; no Android runtime evidence\\n')
+          else:
+              commands = [
+                  ('adb-devices.txt', ['adb', 'devices', '-l']),
+                  ('emulator-boot.txt', ['adb', 'shell', 'getprop', 'sys.boot_completed']),
+                  ('webview-provider.txt', ['adb', 'shell', 'dumpsys', 'webviewupdate']),
+                  ('logcat.txt', ['adb', 'logcat', '-d', '-s',
+                                  'AndroidRuntime:E', 'chromium:E', 'WebViewFactory:I']),
+                  ('screenshot.png', ['adb', 'exec-out', 'screencap', '-p']),
+              ]
+              results = []
+              for name, cmd in commands:
+                  output = out / name
+                  try:
+                      with output.open('wb') as dest:
+                          run = subprocess.run(cmd, stdout=dest, stderr=subprocess.PIPE,
+                                               timeout=12, check=False)
+                      results.append(f'{name}: exit {run.returncode}; bytes={output.stat().st_size}')
+                      if run.stderr:
+                          (out / (name + '.stderr.txt')).write_bytes(run.stderr[:8192])
+                  except subprocess.TimeoutExpired:
+                      results.append(f'{name}: TIMEOUT after 12s, not proof of execution')
+                  except OSError as exc:
+                      results.append(f'{name}: ERROR {type(exc).__name__}: {exc}')
+                  if output.exists() and output.stat().st_size == 0:
+                      output.unlink()
+              (out / 'capture-summary.txt').write_text('\\n'.join(results) + '\\n')
+              print('\\n'.join(results))
+          PY
           cp -R android-demo/app/build/outputs/androidTest-results/connected android-demo/emulator-evidence/ 2>/dev/null || true
           cp -R android-demo/app/build/reports/androidTests android-demo/emulator-evidence/ 2>/dev/null || true
       - name: Upload test reports and screenshot (NO APK release)
