@@ -60,7 +60,30 @@ jobs:
             adb shell settings get global wifi_on
             echo 'Install and exercise disposable app + instrumentation APK on real emulator'
             gradle --no-daemon -p android-demo :app:connectedDebugAndroidTest
-            echo 'Proof: successful real Android instrumentation (not physical device)'
+            echo 'Verify the exact target test ran, not just a green or NO-SOURCE Gradle task'
+            python3 - <<'PY'
+            from pathlib import Path
+            import xml.etree.ElementTree as ET
+            results = Path('android-demo/app/build/outputs/androidTest-results/connected')
+            reports = sorted(results.rglob('TEST-*.xml')) if results.is_dir() else []
+            assert reports, 'No on-emulator Android JUnit XML found; not an Android pass'
+            seen = 0
+            for path in reports:
+                root = ET.parse(path).getroot()
+                cases = list(root.iter('testcase'))
+                for case in cases:
+                    if case.attrib.get('name') == 'realAndroidWebViewLoadsAndRunsEntirelyOffline':
+                        assert 'OfflineSandboxEmulatorTest' in case.attrib.get('classname',''), 'Unexpected test class'
+                        assert not any(c.tag in ('failure', 'error', 'skipped') for c in case), 'Test did not pass'
+                        seen += 1
+                assert int(root.attrib.get('failures',0)) == 0, 'Emulator test report has failures'
+                assert int(root.attrib.get('errors',0)) == 0, 'Emulator test report has errors'
+                print('Android test XML:',path,'cases:',len(cases))
+            assert seen == 1, f'Expected exactly one real Android WebView test; observed {seen}'
+            print('PASS: actual on-emulator WebView test XML, not a synthetic/empty build')
+            PY
+            test "$(adb shell settings get global airplane_mode_on | tr -d '\r')" = 1
+            echo 'Proof: successful real Android instrumentation while airplane mode remained enabled (not physical device)'
       - name: Capture emulator/AndroidJUnit evidence when available
         if: always()
         shell: bash
