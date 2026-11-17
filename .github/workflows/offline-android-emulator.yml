@@ -89,11 +89,44 @@ jobs:
         shell: bash
         run: |
           mkdir -p android-demo/emulator-evidence
-          if command -v adb >/dev/null 2>&1; then
-            adb devices -l > android-demo/emulator-evidence/adb-devices.txt || true
-            adb logcat -d -s 'AndroidRuntime:E' 'chromium:E' 'WebViewFactory:I' > android-demo/emulator-evidence/logcat.txt || true
-            adb exec-out screencap -p > android-demo/emulator-evidence/screenshot.png || true
-          fi
+          # adb can hang after a failed or half-booted emulator. Never let
+          # optional evidence capture keep a failed job alive indefinitely.
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          import subprocess
+          out = Path('android-demo/emulator-evidence')
+          out.mkdir(parents=True, exist_ok=True)
+          if not shutil.which('adb'):
+              (out / 'capture-summary.txt').write_text('ADB unavailable; no Android runtime evidence\\n')
+          else:
+              commands = [
+                  ('adb-devices.txt', ['adb', 'devices', '-l']),
+                  ('emulator-boot.txt', ['adb', 'shell', 'getprop', 'sys.boot_completed']),
+                  ('webview-provider.txt', ['adb', 'shell', 'dumpsys', 'webviewupdate']),
+                  ('logcat.txt', ['adb', 'logcat', '-d', '-s',
+                                  'AndroidRuntime:E', 'chromium:E', 'WebViewFactory:I']),
+                  ('screenshot.png', ['adb', 'exec-out', 'screencap', '-p']),
+              ]
+              results = []
+              for name, cmd in commands:
+                  output = out / name
+                  try:
+                      with output.open('wb') as dest:
+                          run = subprocess.run(cmd, stdout=dest, stderr=subprocess.PIPE,
+                                               timeout=12, check=False)
+                      results.append(f'{name}: exit {run.returncode}; bytes={output.stat().st_size}')
+                      if run.stderr:
+                          (out / (name + '.stderr.txt')).write_bytes(run.stderr[:8192])
+                  except subprocess.TimeoutExpired:
+                      results.append(f'{name}: TIMEOUT after 12s, not proof of execution')
+                  except OSError as exc:
+                      results.append(f'{name}: ERROR {type(exc).__name__}: {exc}')
+                  if output.exists() and output.stat().st_size == 0:
+                      output.unlink()
+              (out / 'capture-summary.txt').write_text('\\n'.join(results) + '\\n')
+              print('\\n'.join(results))
+          PY
           cp -R android-demo/app/build/outputs/androidTest-results/connected android-demo/emulator-evidence/ 2>/dev/null || true
           cp -R android-demo/app/build/reports/androidTests android-demo/emulator-evidence/ 2>/dev/null || true
       - name: Upload test reports and screenshot (NO APK release)
