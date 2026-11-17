@@ -1,4 +1,4 @@
-name: Offline Android emulator - airplane mode runtime proof
+name: Offline Android emulator - macOS HVF airplane mode proof
 
 on:
   push:
@@ -17,9 +17,9 @@ permissions:
 
 jobs:
   airplane-mode-emulator:
-    name: Android API 35 local WebView in airplane mode (not device acceptance)
-    runs-on: ubuntu-latest
-    timeout-minutes: 55
+    name: macOS HVF Android API 29 offline WebView instrumentation
+    runs-on: macos-15-intel
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Java 17 for AGP 8.9.2
@@ -31,14 +31,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Note runner virtualization availability (optional)
+      - name: Verify macOS hardware-assisted emulator host
         shell: bash
         run: |
-          if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
-            echo 'KVM usable; this job still selects software emulation for consistent CI evidence'
-          else
-            echo 'KVM unavailable on this runner; using software emulation'
-          fi
+          set -euo pipefail
+          test "$(uname -s)" = Darwin
+          sysctl -n kern.hv_support | grep -x 1
+          echo 'Apple Hypervisor Framework supported; do not claim emulator test pass yet'
       - name: Actual emulator + Android WebView instrumentation with radios disabled
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -48,7 +47,7 @@ jobs:
           profile: pixel_2
           emulator-boot-timeout: 750
           disable-animations: true
-          emulator-options: -accel off -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-options: -accel on -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           script: |
             set -euo pipefail
             adb wait-for-device
