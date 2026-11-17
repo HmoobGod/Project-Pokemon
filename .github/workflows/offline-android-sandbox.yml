@@ -87,6 +87,21 @@ jobs:
           gradle-version: '8.11.1'
       - name: Compile a disposable debug-signed Android APK
         run: gradle --no-daemon -p android-demo :app:assembleDebug
+      - name: Compile real Android instrumentation test APK without an emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Source Node tests do not compile this Java instrumentation target.
+          # Compiling it is a useful separate check, NOT a runtime/device pass.
+          gradle --no-daemon -p android-demo :app:assembleDebugAndroidTest
+          test_dir="android-demo/app/build/outputs/apk/androidTest"
+          test -d "$test_dir"
+          mapfile -t test_apks < <(find "$test_dir" -type f -name '*androidTest*.apk' | sort)
+          if [ "${#test_apks[@]}" -ne 1 ] || [ ! -s "${test_apks[0]}" ]; then
+            echo "FAIL: expected exactly one nonempty compiled Android instrumentation APK" >&2
+            exit 1
+          fi
+          echo "PASS: compiled Android instrumentation APK (no emulator execution): ${test_apks[0]}"
       - name: Verify application identity, declared permissions and exact local assets
         shell: bash
         run: |

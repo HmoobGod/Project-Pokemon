@@ -91,19 +91,29 @@ public final class OfflineSandboxEmulatorTest {
         assertNotNull(activity);
         try {
             instrumentation.waitForIdleSync();
-            ViewGroup root = activity.findViewById(android.R.id.content);
-            assertNotNull(root);
-            assertTrue("Real Activity must contain a WebView",
-                    root.getChildAt(0) instanceof WebView);
-            WebView web = (WebView) root.getChildAt(0);
+            // Android's system WebView enforces thread affinity even for
+            // getUrl(). Keep view discovery and every direct WebView call on
+            // the Activity's main looper; only result assertions run here.
+            AtomicReference<WebView> webRef = new AtomicReference<>();
+            instrumentation.runOnMainSync(() -> {
+                ViewGroup root = activity.findViewById(android.R.id.content);
+                assertNotNull(root);
+                assertTrue("Real Activity must contain a WebView",
+                        root.getChildAt(0) instanceof WebView);
+                webRef.set((WebView) root.getChildAt(0));
+            });
+            final WebView web = webRef.get();
+            assertNotNull("Expected packaged WebView activity", web);
 
             until(web, "document.readyState==='complete' && " +
                     "!!window.PokeBonkOfflineDemo && " +
                     "!!document.getElementById('start') && " +
                     "!!document.getElementById('arena')", 30000);
+            AtomicReference<String> loadedUrl = new AtomicReference<>();
+            instrumentation.runOnMainSync(() -> loadedUrl.set(web.getUrl()));
             assertEquals("Offline URL must use asset loader (not pokebonk.com)",
                     "https://appassets.androidplatform.net/assets/index.html",
-                    web.getUrl());
+                    loadedUrl.get());
 
             assertEquals("true", eval(web,
                     "document.getElementById('start').click();true"));
