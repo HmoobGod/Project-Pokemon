@@ -1,0 +1,123 @@
+name: Offline Android Sandbox APK - unverified demo
+
+on:
+  push:
+    paths:
+      - 'android-demo/**'
+      - 'offline-sandbox/**'
+      - 'test/offline-browser-smoke.html'
+      - 'test/android-sandbox-source.test.mjs'
+      - 'package.json'
+      - '.github/workflows/offline-android-sandbox.yml'
+  pull_request:
+    paths:
+      - 'android-demo/**'
+      - 'offline-sandbox/**'
+      - 'test/offline-browser-smoke.html'
+      - 'test/android-sandbox-source.test.mjs'
+      - 'package.json'
+      - '.github/workflows/offline-android-sandbox.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  browser-smoke:
+    name: Render local sandbox in real headless Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Canvas, controls and pause/resume smoke over loopback only
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME=""
+          for candidate in google-chrome google-chrome-stable chromium chromium-browser; do
+            if command -v "$candidate" >/dev/null 2>&1; then
+              CHROME=$(command -v "$candidate")
+              break
+            fi
+          done
+          if [ -z "$CHROME" ]; then
+            echo 'No Chromium/Chrome binary on runner; not a browser pass' >&2
+            exit 1
+          fi
+          "$CHROME" --version
+          python3 -m http.server 8765 --bind 127.0.0.1 >/tmp/offline-test-server.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          sleep 2
+          timeout 45 "$CHROME" --headless=new --no-sandbox --disable-gpu \
+            --disable-dev-shm-usage --disable-background-networking \
+            --virtual-time-budget=7000 \
+            --dump-dom "http://127.0.0.1:8765/test/offline-browser-smoke.html" \
+            > /tmp/offline-browser-dom.html 2>/tmp/offline-browser-stderr.log
+          if ! grep -F 'data-test-result="PASS"' /tmp/offline-browser-dom.html; then
+            tail -c 3000 /tmp/offline-browser-dom.html || true
+            tail -c 3000 /tmp/offline-browser-stderr.log || true
+            exit 1
+          fi
+          grep -F 'PASS: real Chromium canvas' /tmp/offline-browser-dom.html
+  debug-apk:
+    name: Build and inspect offline-only debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned Android SDK packages using the hosted runner's existing SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -d "$SDK_ROOT/cmdline-tools"
+          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)
+          test -x "$SDKMANAGER"
+          echo "Using $SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Gradle 8.11.1 (no checked-in binary wrapper)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Compile a disposable debug-signed Android APK
+        run: gradle --no-daemon -p android-demo :app:assembleDebug
+      - name: Verify application identity, declared permissions and exact local assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android-demo/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$APK" | tee /tmp/offline-badging.txt
+          grep -F "package: name='org.projectpokemon.offlinesandbox'" /tmp/offline-badging.txt
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump permissions "$APK" | tee /tmp/offline-permissions.txt
+          if grep -Eq 'android.permission.(INTERNET|ACCESS_NETWORK_STATE)' /tmp/offline-permissions.txt; then
+            echo 'FAIL: network permission unexpectedly present' >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          apk = Path("android-demo/app/build/outputs/apk/debug/app-debug.apk")
+          with ZipFile(apk) as z:
+              for name in ("index.html", "engine.js", "app.js"):
+                  bundled = z.read("assets/" + name)
+                  source = Path("offline-sandbox", name).read_bytes()
+                  assert bundled == source, f"APK asset differs from source: {name}"
+                  assert bundled, f"Empty app asset: {name}"
+                  print(f"OK: exact local asset {name}: {len(bundled)} bytes")
+              assert not any(n.startswith("assets/") and n.endswith((".png",".jpg",".mp3",".ogg")) for n in z.namelist()), "Unexpected game art/audio"
+          PY
+          sha256sum "$APK"
+      - name: Upload temporary experiment only - not a game release
+        uses: actions/upload-artifact@v4
+        with:
+          name: UNVERIFIED-offline-sandbox-debug-${{ github.sha }}
+          path: android-demo/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7

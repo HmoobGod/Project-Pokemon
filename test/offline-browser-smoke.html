@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Headless browser sandbox verification only</title></head>
+<body>
+<p id="result">RUNNING</p>
+<script>
+'use strict';
+// This is a CI-only harness served over 127.0.0.1, not an app asset.
+// It exercises the *real* demo's local scripts, DOM, canvas, pause and restart.
+const result=document.getElementById('result');
+const check=(ok,msg)=>{if(!ok)throw new Error(msg);};
+const delay=(ms)=>new Promise(resolve=>setTimeout(resolve,ms));
+async function run(){
+  const frame=document.createElement('iframe');
+  frame.title='Sandbox smoke iframe';
+  frame.src='/offline-sandbox/index.html';
+  frame.width='960';frame.height='540';
+  const loaded=new Promise((resolve,reject)=>{
+    frame.onload=resolve;frame.onerror=()=>reject(new Error('Failed to load sandbox'));
+  });
+  document.body.append(frame);
+  await loaded;
+  const d=frame.contentDocument;
+  check(!!d,'Sandbox document unavailable');
+  const canvas=d.getElementById('arena');
+  check(canvas.width===960&&canvas.height===540,'Canvas dimensions wrong');
+  check(!!canvas.getContext('2d'),'Canvas 2D context unavailable');
+  const start=d.getElementById('start'),pause=d.getElementById('pause');
+  check(start && pause,'Missing controls');
+  start.click();
+  await delay(180);
+  check(d.getElementById('status').textContent.includes('State: running'),'Start did not begin real UI');
+  check(!pause.disabled,'Pause control still disabled after start');
+  frame.contentWindow.dispatchEvent(new KeyboardEvent('keydown',{key:'d',bubbles:true}));
+  await delay(200);
+  frame.contentWindow.dispatchEvent(new KeyboardEvent('keyup',{key:'d',bubbles:true}));
+  const running=d.getElementById('status').textContent;
+  check(/Time 0\.[0-9]/.test(running),'Canvas loop or game timer not advancing: '+running);
+  const image=canvas.getContext('2d').getImageData(480,270,1,1).data;
+  check(image[3]===255,'Canvas rendered a transparent pixel');
+  pause.click();
+  await delay(80);
+  check(d.getElementById('status').textContent.includes('State: paused'),'Pause failed');
+  pause.click();
+  await delay(80);
+  check(d.getElementById('status').textContent.includes('State: running'),'Resume failed');
+  result.textContent='PASS: real Chromium canvas, local scripts, controls, time, pause and resume';
+  document.body.dataset.testResult='PASS';
+}
+run().catch(error=>{
+  document.body.dataset.testResult='FAIL';
+  result.textContent='FAIL: '+(error && error.stack || error);
+});
+</script>
+</body>
+</html>

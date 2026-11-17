@@ -15,12 +15,12 @@
     pause.disabled=game.phase==='ready'||game.phase==='finished';
   }
   start.addEventListener('click',()=>{
-    game=G.createGame(1);G.start(game);buttonState();
+    game=G.createGame(1);G.start(game);buttonState();draw();
   });
   pause.addEventListener('click',()=>{
     if(game.phase==='paused')G.start(game);
     else G.pause(game);
-    buttonState();
+    buttonState();draw();
   });
   addEventListener('keydown',e=>{
     const k=e.key.toLowerCase();
@@ -29,13 +29,13 @@
     }
     if(k===' '&&e.target===document.body){
       if(game.phase==='paused')G.start(game);else G.pause(game);
-      buttonState();e.preventDefault();
+      buttonState();draw();e.preventDefault();
     }
   });
   addEventListener('keyup',e=>keys.delete(e.key.toLowerCase()));
-  addEventListener('blur',()=>{keys.clear();stick.id=null;stick.x=0;stick.y=0;G.pause(game);buttonState();});
+  addEventListener('blur',()=>{keys.clear();stick.id=null;stick.x=0;stick.y=0;G.pause(game);buttonState();draw();});
   document.addEventListener('visibilitychange',()=>{
-    if(document.hidden){G.pause(game);buttonState();}
+    if(document.hidden){G.pause(game);buttonState();draw();}
   });
   function coords(e){
     const box=canvas.getBoundingClientRect();
