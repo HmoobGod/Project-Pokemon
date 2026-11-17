@@ -29,8 +29,9 @@ test('fresh profile is app-private metadata, isolated from Standard and server a
       assert.doesNotMatch(src,/\.put\(["']rewards["']/);
     } else if(forbidden==='INTERNET') {
       assert.doesNotMatch(src,/android\.permission\.INTERNET/);
-    } else if(forbidden==='stardust') {
-      assert.doesNotMatch(src,/\.put\(["']stardust["']/);
+    } else if(forbidden==='stardust'||forbidden==='purchase') {
+      // Comments explaining forbidden purchases aren't persisted fields.
+      assert.doesNotMatch(src,/\.put\(["'](?:stardust|purchase)["']/);
     } else {
       assert.ok(!src.includes(forbidden), 'Offline metadata must not couple to '+forbidden);
     }
