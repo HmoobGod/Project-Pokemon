@@ -1,0 +1,83 @@
+name: Offline Android emulator - airplane mode runtime proof
+
+on:
+  push:
+    paths:
+      - 'android-demo/**'
+      - 'offline-sandbox/**'
+      - '.github/workflows/offline-android-emulator.yml'
+  pull_request:
+    paths:
+      - 'android-demo/**'
+      - 'offline-sandbox/**'
+      - '.github/workflows/offline-android-emulator.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  airplane-mode-emulator:
+    name: Android API 35 local WebView in airplane mode (not device acceptance)
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Java 17 for AGP 8.9.2
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Enable hardware-accelerated KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm
+      - name: Actual emulator + Android WebView instrumentation with radios disabled
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          script: |
+            set -euo pipefail
+            adb wait-for-device
+            echo 'Airplane mode ON; Wi-Fi and mobile data OFF before install/run'
+            adb shell svc wifi disable
+            adb shell svc data disable
+            adb shell settings put global airplane_mode_on 1
+            adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true || true
+            test "$(adb shell settings get global airplane_mode_on | tr -d '\r')" = 1
+            adb shell settings get global wifi_on
+            echo 'Install and exercise disposable app + instrumentation APK on real emulator'
+            gradle --no-daemon -p android-demo :app:connectedDebugAndroidTest
+            echo 'Proof: successful real Android instrumentation (not physical device)'
+      - name: Capture emulator/AndroidJUnit evidence when available
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p android-demo/emulator-evidence
+          if command -v adb >/dev/null 2>&1; then
+            adb devices -l > android-demo/emulator-evidence/adb-devices.txt || true
+            adb logcat -d -s 'AndroidRuntime:E' 'chromium:E' 'WebViewFactory:I' > android-demo/emulator-evidence/logcat.txt || true
+            adb exec-out screencap -p > android-demo/emulator-evidence/screenshot.png || true
+          fi
+          cp -R android-demo/app/build/outputs/androidTest-results/connected android-demo/emulator-evidence/ 2>/dev/null || true
+          cp -R android-demo/app/build/reports/androidTests android-demo/emulator-evidence/ 2>/dev/null || true
+      - name: Upload test reports and screenshot (NO APK release)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: UNVERIFIED-android-emulator-evidence-${{ github.sha }}
+          path: android-demo/emulator-evidence/
+          if-no-files-found: warn
+          retention-days: 7
