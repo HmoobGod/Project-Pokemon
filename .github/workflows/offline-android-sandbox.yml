@@ -5,11 +5,17 @@ on:
     paths:
       - 'android-demo/**'
       - 'offline-sandbox/**'
+      - 'test/offline-browser-smoke.html'
+      - 'test/android-sandbox-source.test.mjs'
+      - 'package.json'
       - '.github/workflows/offline-android-sandbox.yml'
   pull_request:
     paths:
       - 'android-demo/**'
       - 'offline-sandbox/**'
+      - 'test/offline-browser-smoke.html'
+      - 'test/android-sandbox-source.test.mjs'
+      - 'package.json'
       - '.github/workflows/offline-android-sandbox.yml'
 
 permissions:
