@@ -27,10 +27,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Android SDK
-        uses: android-actions/setup-android@v3
-      - name: Install pinned Android platform and build tools
-        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+      - name: Install pinned Android SDK packages using the hosted runner's existing SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -d "$SDK_ROOT/cmdline-tools"
+          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)
+          test -x "$SDKMANAGER"
+          echo "Using $SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$SDK_ROOT" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" --install "platforms;android-35" "build-tools;35.0.0"
       - name: Gradle 8.11.1 (no checked-in binary wrapper)
         uses: gradle/actions/setup-gradle@v4
         with:
