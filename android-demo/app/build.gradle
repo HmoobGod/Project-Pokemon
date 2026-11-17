@@ -1,0 +1,30 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'org.projectpokemon.offlinesandbox'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'org.projectpokemon.offlinesandbox'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0-source-demo'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    sourceSets {
+        main {
+            // The exact original placeholder demo JS/HTML/CSS is inside the APK.
+            // No copy of the real game's code, accounts, images or bundled assets.
+            assets.srcDirs += [file('../../offline-sandbox')]
+        }
+    }
+}
+dependencies {
+    implementation 'androidx.webkit:webkit:1.14.0'
+}
