@@ -88,7 +88,7 @@ public final class OfflineSoloProfileStoreTest {
         final String key = "fresh_profile_v1";
         try {
             assertFalse(fixture.contains(key));
-            String malformed = "{\\"namespace\\":\\"unexpected\\",\\"schema\\":1,\\"id\\":\\"not-a-profile\\"}";
+            String malformed = "{\"namespace\":\"unexpected\",\"schema\":1,\"id\":\"not-a-profile\"}";
             assertTrue(fixture.edit().putString(key, malformed).commit());
             try {
                 OfflineSoloProfileStore.openOrCreate(fixture);
