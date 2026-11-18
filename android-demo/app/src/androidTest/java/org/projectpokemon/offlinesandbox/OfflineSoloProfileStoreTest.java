@@ -115,4 +115,47 @@ public final class OfflineSoloProfileStoreTest {
             assertTrue(context.deleteSharedPreferences(fixtureName));
         }
     }
+    @Test
+    public void unexpectedPrivateKeysNeverCreateOrRewriteIdentity() {
+        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        final String profileKey = "fresh_profile_v1";
+        final String foreignKey = "unrecognized_older_metadata";
+        final String rawForeignValue = "opaque string; must survive untouched";
+        for (int scenario = 0; scenario < 2; scenario++) {
+            // Two separately named disposable fixtures; never clear or inspect
+            // the actual app profile slot or any Standard/browser game save.
+            String fixtureName = "offline_unknown_key_test_" + UUID.randomUUID();
+            SharedPreferences fixture = context.getSharedPreferences(fixtureName, Context.MODE_PRIVATE);
+            try {
+                if (scenario == 1) {
+                    // A correctly initialized record must also reject unknown
+                    // sibling keys rather than silently ignoring them.
+                    assertNotNull(OfflineSoloProfileStore.openOrCreate(fixture));
+                } else {
+                    assertFalse(fixture.contains(profileKey));
+                }
+                assertTrue(fixture.edit().putString(foreignKey, rawForeignValue).commit());
+                java.util.Map<String, ?> before = fixture.getAll();
+                try {
+                    OfflineSoloProfileStore.openOrCreate(fixture);
+                    fail("Unexpected private slots must be preserved, not treated as fresh");
+                } catch (IllegalStateException expected) {
+                    assertNotNull(expected);
+                }
+                assertEquals("Existing raw slots must remain byte-for-byte equivalent",
+                        before, fixture.getAll());
+                assertEquals(rawForeignValue, fixture.getString(foreignKey, null));
+                if (scenario == 0) {
+                    assertFalse("Do not inject a fresh identity over unknown data",
+                            fixture.contains(profileKey));
+                } else {
+                    assertTrue("Existing identity was lost", fixture.contains(profileKey));
+                }
+            } finally {
+                assertTrue("Only disposable fixture cleanup is allowed",
+                        context.deleteSharedPreferences(fixtureName));
+            }
+        }
+    }
+
 }
