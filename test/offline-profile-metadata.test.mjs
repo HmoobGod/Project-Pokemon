@@ -56,6 +56,21 @@ test('fresh-profile metadata has Android runtime cases for persistence and fail-
   assert.match(src,/deleteSharedPreferences\(fixtureName\)/);
   assert.match(src,/assertEquals\("Reopening MUST NOT overwrite prior raw profile bytes"/);
   assert.match(workflow,/assembleDebugAndroidTest/);
+  const emulatorWorkflow=await read('.github/workflows/offline-android-emulator.yml');
+  for(const testcase of [
+    'realAndroidWebViewLoadsAndRunsEntirelyOffline',
+    'freshIdentityIsStableAndContainsNoProgression',
+    'corruptOrForgedProfilesFailClosedWithoutStorageWrites',
+    'persistedCorruptionNeverRewritesRawBytesInDisposableFixture',
+    'unexpectedPrivateKeysNeverCreateOrRewriteIdentity'
+  ]) {
+    assert.ok(emulatorWorkflow.includes(testcase),
+      'Real emulator XML gate must require '+testcase);
+  }
+  assert.match(emulatorWorkflow,/Duplicate AndroidJUnit testcase/);
+  assert.match(emulatorWorkflow,/Expected exactly 5 Android tests/);
+  assert.match(emulatorWorkflow,/root\.attrib\.get\('skipped', -1\)/);
+
   assert.match(manifest,/android:allowBackup="false"/);
   assert.doesNotMatch(manifest,/<uses-permission\s/);
 });
