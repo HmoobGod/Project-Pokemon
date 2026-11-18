@@ -1,31 +1,41 @@
 /**
- * Pure gameplay simulation for the vertical slice. No rendering, DOM or network here,
- * so the rules can be unit tested and later run inside an offline Android WebView.
+ * Pure gameplay simulation (no DOM, rendering or network), so the rules can be unit tested and later
+ * run inside an offline Android WebView.
  *
- * Run structure: each stage = defeat its KO quota of normal enemies -> its boss spawns ->
- * defeat the boss -> a portal opens -> the player walks into it and explicitly activates it.
- * Activating a non-final portal moves to the next stage; activating the final portal is the
- * (only) way to achieve a completed victory. Defeat, quit and victory are distinct outcomes.
- * No currency, rewards or unlocks exist in this prototype.
+ * Run structure (GUIDE #01/#11 from the owner-supplied guide screenshots; numbers are prototype values):
+ *   Zone 1 -> Zone 2 -> Zone 3 -> Shrine.
+ *   Each zone is a separate map context with a 10-minute ACTIVE zone clock (it does not run while paused
+ *   or choosing a level-up). When it runs out the Final Swarm starts: combat continues, normal enemies get
+ *   much tougher, nothing ends or moves on automatically.
+ *   The player wakes the zone's Guardian at its altar with an explicit action, whenever they choose.
+ *   Only the Guardian's real HP-zero defeat opens the portal; entering it is another explicit action.
+ *   The zone-3 portal leads to the Shrine, where the map's Legendary is fought.
+ *
+ * The Shrine finale's exact win/exit rules are NOT confirmed by the guide, so defeating the Legendary ends
+ * the run as 'shrine-cleared' (a prototype outcome) — this code never produces a completed 'victory'.
+ * Save-and-quit is not implemented (no safe durable saves yet). No currency, rewards or unlocks exist.
  */
 import { createRng, randRange, type Rng } from './rng.ts';
 import {
+  ALTAR,
   ARENA_HALF_SIZE,
   BOSS_PHASE_SPAWN_MUL,
   BOSS_SLAM,
   ENEMIES,
-  OBSTACLES,
+  LEGENDARY_SLAM,
+  NORMAL_RULES,
   ORB,
   PLAYER_BASE,
   PORTAL,
   PULSE,
   SPAWN,
-  STAGES,
   STRIKE_GRACE,
   spawnInterval,
   xpToNext,
   type EnemyKind,
-  type StageDef,
+  type Obstacle,
+  type RunRules,
+  type ZoneDef,
 } from './config.ts';
 import { UPGRADES, UPGRADE_ORDER, type UpgradeId } from './upgrades.ts';
 
@@ -34,8 +44,9 @@ export interface Vec2 {
   z: number;
 }
 
-export type Phase = 'playing' | 'levelup' | 'defeated' | 'victory' | 'quit';
-export type Outcome = 'defeat' | 'victory' | 'quit';
+export type Phase = 'playing' | 'levelup' | 'defeated' | 'quit' | 'shrine-cleared';
+/** 'victory' is intentionally absent until the Shrine finale's real rules are confirmed. */
+export type Outcome = 'defeat' | 'quit' | 'shrine-cleared';
 
 export interface PlayerState {
   pos: Vec2;
@@ -71,8 +82,10 @@ export interface Enemy {
   ai: EnemyAiState;
   aiTimer: number;
   hitFlash: number;
-  /** boss only: time until the next ground slam may start */
+  /** guardian/legendary only: time until the next ground slam may start */
   slamTimer: number;
+  /** multiplier on this enemy's attack damage (Final Swarm) */
+  damageMul: number;
 }
 
 export interface Projectile {
@@ -90,22 +103,32 @@ export interface XpOrb {
   value: number;
 }
 
-/** objective -> boss -> portal, per stage */
-export type StageState = 'objective' | 'boss' | 'portal';
+export type MapKind = 'zone' | 'shrine';
+export type AltarState = 'dormant' | 'awakened' | 'spent';
+/** zone: explore -> guardian -> portal; shrine: intro -> legendary -> cleared */
+export type MapState = 'explore' | 'guardian' | 'portal' | 'intro' | 'legendary' | 'cleared';
 
-export interface StageProgress {
+export interface MapProgress {
+  kind: MapKind;
+  /** 0..zones-1 for zones; zones.length for the shrine */
   index: number;
-  count: number;
+  zoneCount: number;
   name: string;
-  state: StageState;
-  stageTime: number;
-  killQuota: number;
-  /** normal-enemy KOs made during this stage's objective */
-  kills: number;
+  state: MapState;
+  /** active seconds spent in this zone (frozen while paused / choosing a level-up) */
+  zoneTime: number;
+  zoneSeconds: number;
+  finalSwarm: boolean;
+  altar: { pos: Vec2; state: AltarState } | null;
   bossId: number | null;
   portal: Vec2 | null;
-  isFinal: boolean;
+  obstacles: readonly Obstacle[];
+  ground: number;
+  /** shrine only: seconds until the Legendary appears */
+  introTimer: number;
 }
+
+export type ActionKind = 'wake-guardian' | 'enter-portal';
 
 export type GameEvent =
   | { type: 'shot'; count: number }
@@ -117,32 +140,40 @@ export type GameEvent =
   | { type: 'levelUp'; level: number; choices: UpgradeId[] }
   | { type: 'upgradeChosen'; id: UpgradeId }
   | { type: 'pulse'; radius: number; hits: number }
-  | { type: 'objectiveComplete'; stage: number }
-  | { type: 'bossSpawned'; id: number; stage: number }
+  | { type: 'finalSwarm'; zone: number }
+  | { type: 'guardianAwakened'; id: number; zone: number }
   | { type: 'bossSlamWindup'; id: number; radius: number }
   | { type: 'bossSlam'; id: number; radius: number; hit: boolean }
-  | { type: 'bossDefeated'; id: number; stage: number }
-  | { type: 'portalOpened'; stage: number; pos: Vec2; final: boolean }
-  | { type: 'stageAdvanced'; stage: number }
+  | { type: 'guardianDefeated'; id: number; zone: number }
+  | { type: 'portalOpened'; zone: number; pos: Vec2; toShrine: boolean }
+  | { type: 'zoneTransition'; from: number; to: number }
+  | { type: 'shrineEntered' }
+  | { type: 'legendaryAppeared'; id: number }
+  | { type: 'legendaryDefeated'; id: number }
   | { type: 'defeated'; time: number; kills: number; level: number }
-  | { type: 'victory'; time: number }
-  | { type: 'quit'; time: number };
+  | { type: 'quit'; time: number }
+  | { type: 'shrineCleared'; time: number };
 
 export interface RunStats {
   kills: number;
   damageDealt: number;
   damageTaken: number;
   xpCollected: number;
-  bossesDefeated: number;
-  stagesCleared: number;
+  guardiansDefeated: number;
+  zonesCleared: number;
+  legendaryDefeated: boolean;
+  finalSwarmsReached: number;
 }
 
 export interface RunResult {
   outcome: Outcome;
   time: number;
-  stageReached: number;
-  stagesCleared: number;
-  bossesDefeated: number;
+  /** e.g. "Zone 2 · Dunes" or "Shrine" */
+  reached: string;
+  zonesCleared: number;
+  guardiansDefeated: number;
+  legendaryDefeated: boolean;
+  finalSwarmsReached: number;
   kills: number;
   level: number;
 }
@@ -150,6 +181,8 @@ export interface RunResult {
 export interface World {
   seed: number;
   rng: Rng;
+  rules: RunRules;
+  /** total active run time */
   time: number;
   phase: Phase;
   player: PlayerState;
@@ -161,8 +194,7 @@ export interface World {
   pendingLevelUps: number;
   choices: UpgradeId[] | null;
   stats: RunStats;
-  stages: readonly StageDef[];
-  stage: StageProgress;
+  map: MapProgress;
   result: RunResult | null;
   /** events emitted during the most recent step/action (renderer/audio consume them) */
   events: GameEvent[];
@@ -174,30 +206,54 @@ export interface MoveInput {
 }
 
 export interface WorldOptions {
-  stages?: readonly StageDef[];
+  rules?: RunRules;
 }
 
-function stageProgress(stages: readonly StageDef[], index: number): StageProgress {
-  const def = stages[index]!;
+function zoneMap(rules: RunRules, index: number): MapProgress {
+  const def = rules.zones[index]!;
   return {
+    kind: 'zone',
     index,
-    count: stages.length,
+    zoneCount: rules.zones.length,
     name: def.name,
-    state: 'objective',
-    stageTime: 0,
-    killQuota: def.killQuota,
-    kills: 0,
+    state: 'explore',
+    zoneTime: 0,
+    zoneSeconds: rules.zoneSeconds,
+    finalSwarm: false,
+    altar: { pos: { ...def.altar }, state: 'dormant' },
     bossId: null,
     portal: null,
-    isFinal: index === stages.length - 1,
+    obstacles: def.obstacles,
+    ground: def.ground,
+    introTimer: 0,
+  };
+}
+
+function shrineMap(rules: RunRules): MapProgress {
+  return {
+    kind: 'shrine',
+    index: rules.zones.length,
+    zoneCount: rules.zones.length,
+    name: rules.shrine.name,
+    state: 'intro',
+    zoneTime: 0,
+    zoneSeconds: rules.zoneSeconds,
+    finalSwarm: false,
+    altar: null,
+    bossId: null,
+    portal: null,
+    obstacles: rules.shrine.obstacles,
+    ground: rules.shrine.ground,
+    introTimer: rules.shrine.introDelay,
   };
 }
 
 export function createWorld(seed: number, options: WorldOptions = {}): World {
-  const stages = options.stages && options.stages.length > 0 ? options.stages : STAGES;
+  const rules = options.rules ?? NORMAL_RULES;
   return {
     seed,
     rng: createRng(seed),
+    rules,
     time: 0,
     phase: 'playing',
     player: {
@@ -228,20 +284,23 @@ export function createWorld(seed: number, options: WorldOptions = {}): World {
     spawnTimer: SPAWN.initialDelay,
     pendingLevelUps: 0,
     choices: null,
-    stats: { kills: 0, damageDealt: 0, damageTaken: 0, xpCollected: 0, bossesDefeated: 0, stagesCleared: 0 },
-    stages,
-    stage: stageProgress(stages, 0),
+    stats: { kills: 0, damageDealt: 0, damageTaken: 0, xpCollected: 0, guardiansDefeated: 0, zonesCleared: 0, legendaryDefeated: false, finalSwarmsReached: 0 },
+    map: zoneMap(rules, 0),
     result: null,
     events: [],
   };
 }
 
-export function currentStageDef(world: World): StageDef {
-  return world.stages[world.stage.index]!;
+export function currentZoneDef(world: World): ZoneDef | null {
+  return world.map.kind === 'zone' ? world.rules.zones[world.map.index]! : null;
+}
+
+export function mapLabel(map: MapProgress): string {
+  return map.kind === 'shrine' ? map.name : `Zone ${map.index + 1} · ${map.name}`;
 }
 
 export function isRunOver(world: World): boolean {
-  return world.phase === 'defeated' || world.phase === 'victory' || world.phase === 'quit';
+  return world.phase === 'defeated' || world.phase === 'quit' || world.phase === 'shrine-cleared';
 }
 
 function endRun(world: World, outcome: Outcome): void {
@@ -251,9 +310,11 @@ function endRun(world: World, outcome: Outcome): void {
   world.result = {
     outcome,
     time: world.time,
-    stageReached: world.stage.index + 1,
-    stagesCleared: world.stats.stagesCleared,
-    bossesDefeated: world.stats.bossesDefeated,
+    reached: mapLabel(world.map),
+    zonesCleared: world.stats.zonesCleared,
+    guardiansDefeated: world.stats.guardiansDefeated,
+    legendaryDefeated: world.stats.legendaryDefeated,
+    finalSwarmsReached: world.stats.finalSwarmsReached,
     kills: world.stats.kills,
     level: world.player.level,
   };
@@ -274,8 +335,8 @@ export function clampToArena(p: Vec2, radius: number): void {
   if (p.z > lim) p.z = lim;
 }
 
-function pushOutOfObstacles(p: Vec2, radius: number): void {
-  for (const o of OBSTACLES) {
+function pushOutOfObstacles(obstacles: readonly Obstacle[], p: Vec2, radius: number): void {
+  for (const o of obstacles) {
     const dx = p.x - o.x;
     const dz = p.z - o.z;
     const min = o.radius + radius;
@@ -301,11 +362,11 @@ export const MAX_STEP = 1 / 20;
 
 export function step(world: World, rawInput: MoveInput, dt: number): void {
   world.events = [];
-  if (world.phase !== 'playing') return; // paused for level-up choice or run over
+  if (world.phase !== 'playing') return; // paused for level-up choice or run over: clocks do not move
   if (!(dt > 0)) return;
   dt = Math.min(dt, MAX_STEP);
   world.time += dt;
-  world.stage.stageTime += dt;
+  updateMapClock(world, dt);
 
   updatePlayer(world, rawInput, dt);
   updateSpawning(world, dt);
@@ -317,6 +378,33 @@ export function step(world: World, rawInput: MoveInput, dt: number): void {
   updateOrbs(world, dt);
 }
 
+function updateMapClock(world: World, dt: number): void {
+  const m = world.map;
+  if (m.kind === 'zone') {
+    m.zoneTime += dt;
+    // tiny epsilon: summing many float steps can land at 599.99999999 after exactly 600 s of play
+    if (!m.finalSwarm && m.zoneTime >= m.zoneSeconds - 1e-7) {
+      m.finalSwarm = true;
+      world.stats.finalSwarmsReached++;
+      world.events.push({ type: 'finalSwarm', zone: m.index + 1 });
+    }
+  } else if (m.state === 'intro') {
+    m.introTimer -= dt;
+    if (m.introTimer <= 0) {
+      const leg = spawnEnemy(world, 'legendary', { x: 0, z: -12 });
+      m.bossId = leg.id;
+      m.state = 'legendary';
+      world.events.push({ type: 'legendaryAppeared', id: leg.id });
+    }
+  }
+}
+
+/** Seconds of Final Swarm so far (0 before the zone clock runs out). */
+export function overtimeSeconds(world: World): number {
+  const m = world.map;
+  return m.kind === 'zone' && m.finalSwarm ? m.zoneTime - m.zoneSeconds : 0;
+}
+
 function updatePlayer(world: World, rawInput: MoveInput, dt: number): void {
   const p = world.player;
   const move = normalizeMove(rawInput);
@@ -326,19 +414,22 @@ function updatePlayer(world: World, rawInput: MoveInput, dt: number): void {
     const len = Math.hypot(move.x, move.z);
     p.facing = { x: move.x / len, z: move.z / len };
   }
-  pushOutOfObstacles(p.pos, p.radius);
+  pushOutOfObstacles(world.map.obstacles, p.pos, p.radius);
   clampToArena(p.pos, p.radius);
   if (p.invulnTimer > 0) p.invulnTimer = Math.max(0, p.invulnTimer - dt);
 }
 
 function updateSpawning(world: World, dt: number): void {
-  const def = currentStageDef(world);
+  const def = currentZoneDef(world);
+  if (!def) return; // PROTOTYPE: the Shrine has no wild spawns (unconfirmed)
+  const m = world.map;
   world.spawnTimer -= dt;
   while (world.spawnTimer <= 0) {
-    const mul = def.spawnIntervalMul * (world.stage.state === 'objective' ? 1 : BOSS_PHASE_SPAWN_MUL);
-    world.spawnTimer += spawnInterval(world.stage.stageTime) * mul;
+    let mul = def.spawnIntervalMul * (m.state === 'explore' ? 1 : BOSS_PHASE_SPAWN_MUL);
+    if (m.finalSwarm) mul *= world.rules.finalSwarm.spawnIntervalMul;
+    world.spawnTimer += spawnInterval(m.zoneTime) * mul;
     if (world.enemies.length >= SPAWN.maxEnemies) continue;
-    const kind: EnemyKind = world.stage.stageTime >= def.bruteUnlockTime && world.rng.next() < def.bruteChance ? 'brute' : 'chaser';
+    const kind: EnemyKind = m.zoneTime >= def.bruteUnlockTime && world.rng.next() < def.bruteChance ? 'brute' : 'chaser';
     spawnEnemy(world, kind);
   }
 }
@@ -351,11 +442,36 @@ function ringPosition(world: World, radius: number): Vec2 {
   return pos;
 }
 
+/** HP and damage multipliers for a newly spawned normal enemy right now. */
+export function normalEnemyScaling(world: World): { hp: number; damage: number } {
+  const def = currentZoneDef(world);
+  if (!def) return { hp: 1, damage: 1 };
+  const m = world.map;
+  const minutesIn = Math.min(m.zoneTime, m.zoneSeconds) / 60;
+  let hp = def.enemyHpMul * (1 + world.rules.enemyHpGrowthPerMinute * minutesIn);
+  let damage = 1;
+  if (m.finalSwarm) {
+    const fs = world.rules.finalSwarm;
+    const otMin = overtimeSeconds(world) / 60;
+    hp *= fs.hpMulBase + fs.hpMulPerMinute * otMin;
+    damage *= fs.damageMulBase + fs.damageMulPerMinute * otMin;
+  }
+  return { hp, damage };
+}
+
 export function spawnEnemy(world: World, kind: EnemyKind, at?: Vec2): Enemy {
   const arch = ENEMIES[kind];
   const pos = at ? { x: at.x, z: at.z } : ringPosition(world, arch.radius);
-  const def = currentStageDef(world);
-  const maxHp = kind === 'boss' ? def.bossHp : Math.round(arch.maxHp * def.enemyHpMul);
+  clampToArena(pos, arch.radius);
+  let maxHp: number;
+  let damageMul = 1;
+  if (kind === 'boss') maxHp = currentZoneDef(world)?.guardianHp ?? arch.maxHp;
+  else if (kind === 'legendary') maxHp = world.rules.shrine.legendaryHp;
+  else {
+    const sc = normalEnemyScaling(world);
+    maxHp = Math.round(arch.maxHp * sc.hp);
+    damageMul = sc.damage;
+  }
   const e: Enemy = {
     id: world.nextId++,
     kind,
@@ -366,7 +482,8 @@ export function spawnEnemy(world: World, kind: EnemyKind, at?: Vec2): Enemy {
     ai: 'chase',
     aiTimer: 0,
     hitFlash: 0,
-    slamTimer: kind === 'boss' ? BOSS_SLAM.firstDelay : 0,
+    slamTimer: kind === 'boss' || kind === 'legendary' ? BOSS_SLAM.firstDelay : 0,
+    damageMul,
   };
   world.enemies.push(e);
   return e;
@@ -376,18 +493,20 @@ function updateEnemies(world: World, dt: number): void {
   const p = world.player;
   for (const e of world.enemies) {
     const arch = ENEMIES[e.kind];
+    const big = e.kind === 'boss' || e.kind === 'legendary';
+    const slam = e.kind === 'legendary' ? LEGENDARY_SLAM : BOSS_SLAM;
     if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt);
-    if (e.kind === 'boss' && e.slamTimer > 0) e.slamTimer = Math.max(0, e.slamTimer - dt);
+    if (big && e.slamTimer > 0) e.slamTimer = Math.max(0, e.slamTimer - dt);
     const dx = p.pos.x - e.pos.x;
     const dz = p.pos.z - e.pos.z;
     const d = Math.hypot(dx, dz);
     const touching = e.radius + p.radius;
 
     if (e.ai === 'chase') {
-      if (e.kind === 'boss' && e.slamTimer <= 0 && d <= BOSS_SLAM.triggerRange) {
+      if (big && e.slamTimer <= 0 && d <= slam.triggerRange) {
         e.ai = 'slam';
-        e.aiTimer = BOSS_SLAM.windup;
-        world.events.push({ type: 'bossSlamWindup', id: e.id, radius: BOSS_SLAM.radius });
+        e.aiTimer = slam.windup;
+        world.events.push({ type: 'bossSlamWindup', id: e.id, radius: slam.radius });
       } else if (d <= touching + arch.reach) {
         e.ai = 'windup';
         e.aiTimer = arch.windup;
@@ -400,7 +519,7 @@ function updateEnemies(world: World, dt: number): void {
       e.aiTimer -= dt;
       if (e.aiTimer <= 0) {
         // Strike resolves now: lands only if the player is still close enough.
-        if (d <= touching + arch.reach + STRIKE_GRACE) damagePlayer(world, arch.damage);
+        if (d <= touching + arch.reach + STRIKE_GRACE) damagePlayer(world, Math.round(arch.damage * e.damageMul));
         e.ai = 'recover';
         e.aiTimer = arch.recover;
         if (world.phase !== 'playing') return;
@@ -408,12 +527,12 @@ function updateEnemies(world: World, dt: number): void {
     } else if (e.ai === 'slam') {
       e.aiTimer -= dt;
       if (e.aiTimer <= 0) {
-        const hit = d <= BOSS_SLAM.radius + p.radius;
-        world.events.push({ type: 'bossSlam', id: e.id, radius: BOSS_SLAM.radius, hit });
-        if (hit) damagePlayer(world, BOSS_SLAM.damage);
+        const hit = d <= slam.radius + p.radius;
+        world.events.push({ type: 'bossSlam', id: e.id, radius: slam.radius, hit });
+        if (hit) damagePlayer(world, slam.damage);
         e.ai = 'recover';
-        e.aiTimer = BOSS_SLAM.recover;
-        e.slamTimer = BOSS_SLAM.cooldown;
+        e.aiTimer = slam.recover;
+        e.slamTimer = slam.cooldown;
         if (world.phase !== 'playing') return;
       }
     } else {
@@ -423,13 +542,14 @@ function updateEnemies(world: World, dt: number): void {
   }
   separateEnemies(world);
   for (const e of world.enemies) {
-    pushOutOfObstacles(e.pos, e.radius);
+    pushOutOfObstacles(world.map.obstacles, e.pos, e.radius);
     clampToArena(e.pos, e.radius);
   }
 }
 
 function separateEnemies(world: World): void {
   const list = world.enemies;
+  const heavy = (e: Enemy) => e.kind === 'boss' || e.kind === 'legendary';
   for (let i = 0; i < list.length; i++) {
     const a = list[i]!;
     for (let j = i + 1; j < list.length; j++) {
@@ -440,8 +560,8 @@ function separateEnemies(world: World): void {
       const d2 = dx * dx + dz * dz;
       if (d2 < min * min && d2 > 1e-8) {
         const d = Math.sqrt(d2);
-        // the boss is heavy: small enemies get pushed, it barely moves
-        const wa = a.kind === 'boss' ? 0.1 : b.kind === 'boss' ? 0.9 : 0.5;
+        // guardians/legendaries are heavy: small enemies get pushed, they barely move
+        const wa = heavy(a) && !heavy(b) ? 0.1 : heavy(b) && !heavy(a) ? 0.9 : 0.5;
         const push = min - d;
         const nx = dx / d;
         const nz = dz / d;
@@ -565,94 +685,109 @@ export function hitEnemy(world: World, e: Enemy, damage: number): void {
   }
 }
 
-/** Stage progression is driven only by actual KOs. */
+/** Map progression reacts only to the real HP-zero defeat of the awakened Guardian / Legendary. */
 function onEnemyKilled(world: World, e: Enemy): void {
-  const st = world.stage;
-  if (e.kind === 'boss') {
-    if (st.state !== 'boss' || e.id !== st.bossId) return;
-    world.stats.bossesDefeated++;
-    world.events.push({ type: 'bossDefeated', id: e.id, stage: st.index + 1 });
-    st.state = 'portal';
-    st.bossId = null;
-    st.portal = choosePortalPosition(world);
-    world.events.push({ type: 'portalOpened', stage: st.index + 1, pos: { ...st.portal }, final: st.isFinal });
-    return;
-  }
-  if (st.state !== 'objective') return;
-  st.kills++;
-  if (st.kills >= st.killQuota) {
-    world.events.push({ type: 'objectiveComplete', stage: st.index + 1 });
-    st.state = 'boss';
-    const boss = spawnEnemy(world, 'boss', ringPosition(world, ENEMIES.boss.radius));
-    st.bossId = boss.id;
-    world.events.push({ type: 'bossSpawned', id: boss.id, stage: st.index + 1 });
+  const m = world.map;
+  if (e.id !== m.bossId) return;
+  if (m.kind === 'zone' && e.kind === 'boss' && m.state === 'guardian') {
+    world.stats.guardiansDefeated++;
+    m.state = 'portal';
+    m.bossId = null;
+    if (m.altar) m.altar.state = 'spent';
+    // PROTOTYPE placement: the portal opens at the guardian's altar.
+    m.portal = { ...(m.altar?.pos ?? { x: 0, z: 0 }) };
+    world.events.push({ type: 'guardianDefeated', id: e.id, zone: m.index + 1 });
+    world.events.push({ type: 'portalOpened', zone: m.index + 1, pos: { ...m.portal }, toShrine: m.index === m.zoneCount - 1 });
+  } else if (m.kind === 'shrine' && e.kind === 'legendary' && m.state === 'legendary') {
+    world.stats.legendaryDefeated = true;
+    m.state = 'cleared';
+    m.bossId = null;
+    world.events.push({ type: 'legendaryDefeated', id: e.id });
+    endRun(world, 'shrine-cleared');
+    world.events.push({ type: 'shrineCleared', time: world.time });
   }
 }
 
-/** Portal appears at a fixed-candidate spot far enough from the player that reaching it is a real move. */
-function choosePortalPosition(world: World): Vec2 {
-  const lim = ARENA_HALF_SIZE - 4;
-  const candidates: Vec2[] = [
-    { x: 0, z: 0 },
-    { x: 0, z: -lim },
-    { x: 0, z: lim },
-    { x: -lim, z: 0 },
-    { x: lim, z: 0 },
-  ];
-  const p = world.player.pos;
-  let best = candidates[0]!;
-  let bestD = -1;
-  for (const c of candidates) {
-    const d = dist2(c, p);
-    if (d >= PORTAL.minDistanceFromPlayer ** 2) return { ...c };
-    if (d > bestD) {
-      bestD = d;
-      best = c;
-    }
-  }
-  return { ...best };
+// ---------- explicit player actions (the "action button") ----------
+
+function within(world: World, pos: Vec2 | null | undefined, range: number): boolean {
+  return !!pos && dist2(pos, world.player.pos) <= range * range;
 }
 
-export function distanceToPortal(world: World): number | null {
-  const portal = world.stage.portal;
-  if (!portal) return null;
-  return Math.sqrt(dist2(portal, world.player.pos));
+/** Which action the action button would perform right now (null = nothing in reach). */
+export function availableAction(world: World): ActionKind | null {
+  if (world.phase !== 'playing') return null;
+  const m = world.map;
+  if (m.kind !== 'zone') return null;
+  if (m.state === 'explore' && m.altar?.state === 'dormant' && within(world, m.altar.pos, ALTAR.activateRange)) return 'wake-guardian';
+  if (m.state === 'portal' && within(world, m.portal, PORTAL.activateRange)) return 'enter-portal';
+  return null;
+}
+
+/** Wake the zone's Guardian at its altar. Only once per zone, only while standing at the altar. */
+export function wakeGuardian(world: World): boolean {
+  if (availableAction(world) !== 'wake-guardian') return false;
+  const m = world.map;
+  const altar = m.altar!;
+  world.events = [];
+  altar.state = 'awakened';
+  // spawn a few units beyond the altar, away from the player, so the fight starts at a readable distance
+  const dx = altar.pos.x - world.player.pos.x;
+  const dz = altar.pos.z - world.player.pos.z;
+  const d = Math.hypot(dx, dz) || 1;
+  const g = spawnEnemy(world, 'boss', { x: altar.pos.x + (dx / d) * 6, z: altar.pos.z + (dz / d) * 6 });
+  m.bossId = g.id;
+  m.state = 'guardian';
+  world.events.push({ type: 'guardianAwakened', id: g.id, zone: m.index + 1 });
+  return true;
 }
 
 export function canActivatePortal(world: World): boolean {
-  if (world.phase !== 'playing' || world.stage.state !== 'portal') return false;
-  const d = distanceToPortal(world);
-  return d !== null && d <= PORTAL.activateRange;
+  return availableAction(world) === 'enter-portal';
+}
+
+export function distanceToPortal(world: World): number | null {
+  const portal = world.map.portal;
+  return portal ? Math.sqrt(dist2(portal, world.player.pos)) : null;
 }
 
 /**
- * Explicit player action. Returns false (and changes nothing) unless the portal is open and the
- * player is standing in it. Final portal -> completed victory; otherwise -> next stage.
+ * Enter the open portal (explicit action while standing in it). Zones 1-2 -> next zone's new map;
+ * zone 3 -> the Shrine. Never ends the run.
  */
 export function activatePortal(world: World): boolean {
   if (!canActivatePortal(world)) return false;
   world.events = [];
-  const st = world.stage;
-  world.stats.stagesCleared++;
-  if (st.isFinal) {
-    endRun(world, 'victory');
-    world.events.push({ type: 'victory', time: world.time });
-    return true;
-  }
-  // Next stage: XP orbs already earned on the ground are collected, everything else is cleared.
+  const from = world.map.index;
+  world.stats.zonesCleared++;
+  // Run-only progress is kept (level, upgrades, HP). XP orbs already earned on the ground are collected.
   const earned = world.orbs.reduce((sum, o) => sum + o.value, 0);
   world.enemies = [];
   world.projectiles = [];
   world.orbs = [];
-  world.stage = stageProgress(world.stages, st.index + 1);
   world.player.pos = { x: 0, z: 0 };
   world.spawnTimer = SPAWN.initialDelay;
-  world.events.push({ type: 'stageAdvanced', stage: world.stage.index + 1 });
+  if (from + 1 < world.rules.zones.length) {
+    world.map = zoneMap(world.rules, from + 1);
+    world.events.push({ type: 'zoneTransition', from: from + 1, to: from + 2 });
+  } else {
+    world.map = shrineMap(world.rules);
+    world.player.pos = { x: 0, z: 10 };
+    world.events.push({ type: 'shrineEntered' });
+  }
   if (earned > 0) gainXp(world, earned);
   return true;
 }
 
-/** Player chooses to abandon the run. Distinct from defeat and victory; grants nothing. */
+/** Perform whatever the action button currently offers. */
+export function performAction(world: World): ActionKind | null {
+  const a = availableAction(world);
+  if (a === 'wake-guardian') return wakeGuardian(world) ? a : null;
+  if (a === 'enter-portal') return activatePortal(world) ? a : null;
+  return null;
+}
+
+/** Player chooses to abandon the run. Distinct from defeat and from the shrine outcome; grants nothing. */
 export function quitRun(world: World): boolean {
   if (isRunOver(world)) return false;
   endRun(world, 'quit');

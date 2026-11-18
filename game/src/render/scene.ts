@@ -1,7 +1,7 @@
 /** Three.js view of the simulation. Original primitive placeholder art only. */
 import * as THREE from 'three';
-import { ARENA_HALF_SIZE, BOSS_SLAM, OBSTACLES, PORTAL } from '../sim/config.ts';
-import type { Enemy, World } from '../sim/world.ts';
+import { ALTAR, ARENA_HALF_SIZE, BOSS_SLAM, LEGENDARY_SLAM, PORTAL, type Obstacle } from '../sim/config.ts';
+import type { AltarState, Enemy, World } from '../sim/world.ts';
 import type { SpriteRole } from '../sprites/manifest.ts';
 import type { LoadedSprite } from '../sprites/loader.ts';
 import { directionRow, frameIndex, frameUv } from '../sprites/spriteMath.ts';
@@ -54,10 +54,18 @@ export class GameView {
   private readonly portalDiscMat = new THREE.MeshBasicMaterial({ color: 0x6ff3ff, transparent: true, opacity: 0.35, depthWrite: false });
   private readonly guide: THREE.Mesh;
   private readonly guideMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  private readonly groundMat = new THREE.MeshStandardMaterial({ color: 0x7cc35a });
+  private readonly pillarMat = new THREE.MeshStandardMaterial({ color: 0xb8b2a6 });
+  private readonly mapGroup = new THREE.Group();
+  private readonly altarGemMat = new THREE.MeshStandardMaterial({ color: 0x3ddc84, emissive: 0x3ddc84, flatShading: true });
+  private readonly altarRingMat = new THREE.MeshBasicMaterial({ color: 0x3ddc84, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
+  private altar!: THREE.Group;
+  private mapKey = '';
   private readonly geo = {
     chaser: new THREE.IcosahedronGeometry(0.55, 1),
     brute: new THREE.DodecahedronGeometry(1.0, 0),
     boss: new THREE.OctahedronGeometry(1.6, 0),
+    legendary: new THREE.IcosahedronGeometry(2.2, 0),
     spike: new THREE.ConeGeometry(0.28, 1.1, 6),
     disc: new THREE.CircleGeometry(1, 40),
     portalRing: new THREE.TorusGeometry(1.6, 0.2, 10, 40),
@@ -86,6 +94,8 @@ export class GameView {
     this.scene.add(sun);
 
     this.buildArena();
+    this.altar = this.buildAltar();
+    this.scene.add(this.altar);
     const { group, placeholder, bodyMat } = this.buildPlayer();
     this.player = group;
     this.playerPlaceholder = placeholder;
@@ -116,7 +126,7 @@ export class GameView {
 
   private buildArena(): void {
     const size = ARENA_HALF_SIZE * 2;
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), new THREE.MeshStandardMaterial({ color: 0x7cc35a }));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(size, size), this.groundMat);
     ground.rotation.x = -Math.PI / 2;
     this.scene.add(ground);
     const grid = new THREE.GridHelper(size, size / 2, 0x5f9e45, 0x6cb04f);
@@ -137,12 +147,56 @@ export class GameView {
       m.position.set(x, wallH / 2, z);
       this.scene.add(m);
     }
-    const pillarMat = new THREE.MeshStandardMaterial({ color: 0xb8b2a6 });
-    for (const o of OBSTACLES) {
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(o.radius, o.radius * 1.1, 3, 16), pillarMat);
-      m.position.set(o.x, 1.5, o.z);
-      this.scene.add(m);
+    this.scene.add(this.mapGroup);
+  }
+
+  /** Rebuild the per-map layout (new map context on every zone / shrine transition). */
+  private buildMap(world: World): void {
+    const m = world.map;
+    for (const c of [...this.mapGroup.children]) {
+      this.mapGroup.remove(c);
+      (c as THREE.Mesh).geometry?.dispose();
     }
+    this.groundMat.color.setHex(m.ground);
+    const shrine = m.kind === 'shrine';
+    this.pillarMat.color.setHex(shrine ? 0xd9c8ff : m.index === 1 ? 0xa8875a : m.index === 2 ? 0xe8f6ff : 0xb8b2a6);
+    for (const o of m.obstacles as readonly Obstacle[]) {
+      const p = new THREE.Mesh(new THREE.CylinderGeometry(o.radius, o.radius * 1.1, shrine ? 4 : 3, 16), this.pillarMat);
+      p.position.set(o.x, shrine ? 2 : 1.5, o.z);
+      this.mapGroup.add(p);
+    }
+    this.altar.visible = !!m.altar;
+    if (m.altar) this.altar.position.set(m.altar.pos.x, 0, m.altar.pos.z);
+    this.mapKey = `${m.kind}:${m.index}`;
+  }
+
+  private buildAltar(): THREE.Group {
+    // Original placeholder altar: stone base, glowing gem, activation ring.
+    const g = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.4, 0.8, 8), new THREE.MeshStandardMaterial({ color: 0x8c8c8c, flatShading: true }));
+    base.position.y = 0.4;
+    g.add(base);
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(0.6, 0), this.altarGemMat);
+    gem.position.y = 1.6;
+    gem.name = 'gem';
+    g.add(gem);
+    const zone = new THREE.Mesh(this.geo.ring, this.altarRingMat);
+    zone.rotation.x = -Math.PI / 2;
+    zone.position.y = 0.04;
+    zone.scale.setScalar(ALTAR.activateRange);
+    g.add(zone);
+    return g;
+  }
+
+  private altarLook(state: AltarState, time: number): void {
+    const col = state === 'dormant' ? 0x3ddc84 : state === 'awakened' ? 0xff4040 : 0x777777;
+    this.altarGemMat.color.setHex(col);
+    this.altarGemMat.emissive.setHex(state === 'spent' ? 0x000000 : col);
+    this.altarGemMat.emissiveIntensity = state === 'dormant' ? 0.6 + 0.3 * Math.sin(time * 3) : 0.8;
+    this.altarRingMat.color.setHex(col);
+    this.altarRingMat.opacity = state === 'dormant' ? 0.7 : 0.25;
+    const gem = this.altar.getObjectByName('gem');
+    if (gem) gem.rotation.y = time * (state === 'spent' ? 0 : 1.2);
   }
 
   private buildPlayer(): { group: THREE.Group; placeholder: THREE.Group; bodyMat: THREE.MeshStandardMaterial } {
@@ -257,12 +311,20 @@ export class GameView {
     const sprite = this.makeSpriteView(e.kind);
     if (sprite) {
       group.add(sprite.sprite);
-      return { group, body: null, material: null, sprite, telegraph: e.kind === 'boss' ? this.makeTelegraph(group) : null };
+      const big = e.kind === 'boss' || e.kind === 'legendary';
+      return { group, body: null, material: null, sprite, telegraph: big ? this.makeTelegraph(group, e.kind === 'legendary' ? LEGENDARY_SLAM.radius : BOSS_SLAM.radius) : null };
     }
-    const color = e.kind === 'boss' ? 0x1f5f6b : e.kind === 'brute' ? 0x8b1e3f : 0x7b4fd6;
-    const material = new THREE.MeshStandardMaterial({ color, flatShading: true });
-    const body = new THREE.Mesh(e.kind === 'boss' ? this.geo.boss : e.kind === 'brute' ? this.geo.brute : this.geo.chaser, material);
+    const color = e.kind === 'legendary' ? 0xf2f2ff : e.kind === 'boss' ? 0x1f5f6b : e.kind === 'brute' ? 0x8b1e3f : 0x7b4fd6;
+    const material = new THREE.MeshStandardMaterial({ color, flatShading: true, ...(e.kind === 'legendary' ? { emissive: 0x6b4fd8, emissiveIntensity: 0.35 } : {}) });
+    const geom = e.kind === 'legendary' ? this.geo.legendary : e.kind === 'boss' ? this.geo.boss : e.kind === 'brute' ? this.geo.brute : this.geo.chaser;
+    const body = new THREE.Mesh(geom, material);
     body.position.y = e.radius;
+    if (e.kind === 'legendary') {
+      // original "Legendary" placeholder: pale faceted body with an orbiting violet halo
+      const halo = new THREE.Mesh(new THREE.TorusGeometry(2.8, 0.18, 8, 40), new THREE.MeshStandardMaterial({ color: 0x9b7bff, emissive: 0x6b4fd8 }));
+      halo.rotation.x = Math.PI / 2.4;
+      body.add(halo);
+    }
     if (e.kind === 'boss') {
       // original "guardian": faceted body with a crown of gold spikes
       const spikeMat = new THREE.MeshStandardMaterial({ color: 0xffd34d, flatShading: true });
@@ -274,14 +336,15 @@ export class GameView {
       }
     }
     group.add(body);
-    return { group, body, material, sprite: null, telegraph: e.kind === 'boss' ? this.makeTelegraph(group) : null };
+    const big = e.kind === 'boss' || e.kind === 'legendary';
+    return { group, body, material, sprite: null, telegraph: big ? this.makeTelegraph(group, e.kind === 'legendary' ? LEGENDARY_SLAM.radius : BOSS_SLAM.radius) : null };
   }
 
-  private makeTelegraph(group: THREE.Group): THREE.Mesh {
+  private makeTelegraph(group: THREE.Group, radius: number): THREE.Mesh {
     const t = new THREE.Mesh(this.geo.disc, new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0, depthWrite: false }));
     t.rotation.x = -Math.PI / 2;
     t.position.y = 0.04;
-    t.scale.setScalar(BOSS_SLAM.radius);
+    t.scale.setScalar(radius);
     t.visible = false;
     group.add(t);
     return t;
@@ -308,6 +371,8 @@ export class GameView {
 
   render(world: World, frameDt: number, snapCamera = false): void {
     const p = world.player;
+    if (this.mapKey !== `${world.map.kind}:${world.map.index}`) this.buildMap(world);
+    if (world.map.altar) this.altarLook(world.map.altar.state, world.time);
     this.player.position.set(p.pos.x, 0, p.pos.z);
     this.playerPlaceholder.rotation.y = Math.atan2(-p.facing.x, -p.facing.z);
     const blink = p.invulnTimer > 0 && Math.floor(p.invulnTimer * 20) % 2 === 0;
@@ -332,12 +397,12 @@ export class GameView {
       const pulse = e.ai === 'windup' ? 1 + 0.25 * Math.sin(world.time * 40) : e.ai === 'slam' ? 1 + 0.12 * Math.sin(world.time * 25) : 1;
       if (v.telegraph) {
         v.telegraph.visible = e.ai === 'slam';
-        if (e.ai === 'slam') (v.telegraph.material as THREE.MeshBasicMaterial).opacity = 0.15 + 0.5 * (1 - Math.max(0, e.aiTimer) / BOSS_SLAM.windup);
+        if (e.ai === 'slam') (v.telegraph.material as THREE.MeshBasicMaterial).opacity = 0.15 + 0.5 * (1 - Math.max(0, e.aiTimer) / (e.kind === 'legendary' ? LEGENDARY_SLAM.windup : BOSS_SLAM.windup));
       }
       if (v.body && v.material) {
         v.body.scale.setScalar(pulse);
         v.material.emissive.setHex(e.ai === 'windup' || e.ai === 'slam' ? 0xaa2200 : e.hitFlash > 0 ? 0xffffff : 0x000000);
-        v.body.rotation.y = world.time * (e.kind === 'brute' ? 0.8 : 2);
+        v.body.rotation.y = world.time * (e.kind === 'brute' || e.kind === 'legendary' ? 0.8 : 2);
       } else if (v.sprite) {
         this.updateSpriteFrame(v.sprite, world.time + e.id * 0.13, p.pos.x - e.pos.x, p.pos.z - e.pos.z);
         const sp = v.sprite.loaded.spec;
@@ -370,27 +435,37 @@ export class GameView {
       }
     }
 
-    const st = world.stage;
+    const st = world.map;
+    const toShrine = st.kind === 'zone' && st.index === st.zoneCount - 1;
     this.portal.visible = !!st.portal;
     if (st.portal) {
       this.portal.position.set(st.portal.x, 0, st.portal.z);
       const ring = this.portal.getObjectByName('ring');
       if (ring) ring.rotation.y = world.time * 1.5;
-      const col = st.isFinal ? 0xffd34d : 0x6ff3ff;
+      const col = toShrine ? 0xb48cff : 0x6ff3ff;
       this.portalRingMat.color.setHex(col);
-      this.portalRingMat.emissive.setHex(st.isFinal ? 0x8a6a00 : 0x1aa6c4);
+      this.portalRingMat.emissive.setHex(toShrine ? 0x5a2fd0 : 0x1aa6c4);
       this.portalDiscMat.color.setHex(col);
       this.portalDiscMat.opacity = 0.25 + 0.15 * Math.sin(world.time * 4);
     }
+    // Arrow: portal if open, else the awake guardian/legendary, else the dormant altar.
     let goal: { x: number; z: number } | null = st.portal;
-    if (!goal && st.bossId !== null) goal = world.enemies.find((e) => e.id === st.bossId)?.pos ?? null;
+    let goalColor = toShrine ? 0xb48cff : 0x6ff3ff;
+    if (!goal && st.bossId !== null) {
+      goal = world.enemies.find((e) => e.id === st.bossId)?.pos ?? null;
+      goalColor = 0xff5555;
+    }
+    if (!goal && st.altar?.state === 'dormant') {
+      goal = st.altar.pos;
+      goalColor = 0x3ddc84;
+    }
     const gd = goal ? Math.hypot(goal.x - p.pos.x, goal.z - p.pos.z) : 0;
     this.guide.visible = !!goal && gd > 4 && world.phase === 'playing';
     if (goal && this.guide.visible) {
       const ang = Math.atan2(goal.z - p.pos.z, goal.x - p.pos.x);
       this.guide.position.set(p.pos.x + Math.cos(ang) * 2.2, 0.15, p.pos.z + Math.sin(ang) * 2.2);
       this.guide.rotation.set(-Math.PI / 2, 0, -ang - Math.PI / 2);
-      this.guideMat.color.setHex(st.portal ? (st.isFinal ? 0xffd34d : 0x6ff3ff) : 0xff5555);
+      this.guideMat.color.setHex(goalColor);
     }
 
     const target = new THREE.Vector3(p.pos.x, 0, p.pos.z);

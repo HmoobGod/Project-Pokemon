@@ -44,16 +44,16 @@ Result status: **NOT YET RUN** — only the owner can fill in results below.
 | 11 | **Credits** (start or defeat screen) opens and **Back** closes it | |
 | 12 | 🔊 button turns sound effects on/off | |
 | 13 | FPS (debug corner) stays roughly 30+ with many enemies on screen | |
-| 14 | Top text shows **Stage 1/2** and a KO counter that only goes up when enemies are defeated | |
-| 15 | At the quota, the **Guardian** (big teal boss with gold spikes) appears with a yellow boss bar; a red arrow points to it | |
-| 16 | A red ring grows under the Guardian before it slams; moving out of the ring avoids the damage | |
-| 17 | Defeating the Guardian does **not** end the game; a portal ring appears and the arrow points to it | |
-| 18 | Standing in the portal shows a big **Enter portal** button; tapping it starts **Stage 2/2** | |
-| 19 | After the Stage 2 Guardian, the gold **final portal** + **Enter final portal** button → **Victory!** screen | |
-| 20 | ⏸ pauses (game freezes); **Resume** continues; **Quit run** shows **Run abandoned** | |
-| 21 | Switching to another app and back leaves the game paused, not dead | |
+| 14 | Top shows **Zone 1/3 · Grove** and a 10:00 clock counting down; it stops while ⏸ paused or choosing a level-up card | |
+| 15 | A green arrow points to the **altar**; standing on it shows **Wake Guardian**; tapping it wakes the Guardian (yellow boss bar). KOs alone never wake it | |
+| 16 | The Guardian's red ground ring appears before it slams; stepping out avoids the hit | |
+| 17 | Beating the Guardian opens a **portal** at the altar; nothing happens until you stand in it and tap **Enter portal** | |
+| 18 | Zone 2 and Zone 3 look different (ground colour, pillars, altar spot) and the clock restarts at 10:00 | |
+| 19 | If a zone clock reaches 0:00, the HUD shows **FINAL SWARM** in red, enemies get much tougher, and you can keep fighting (no automatic exit) | |
+| 20 | Zone 3's purple portal (**Enter portal to Shrine**) leads to the Shrine; the Legendary appears; beating it shows **Legendary defeated** that says it is NOT a completed run | |
+| 21 | ⏸ → **Quit run** shows **Run abandoned**; switching apps and back leaves the game paused | |
 
-Tip: a full normal run takes several minutes. To check the stage/boss/portal flow quickly, open `http://<that-address>:4173/?preset=short&debug=1` (smaller quotas, labelled SHORT TEST PRESET), then also play at least one normal run.
+Tip: a full normal run can take up to 30+ minutes. To check the zone/altar/portal/Shrine flow quickly, open `http://<that-address>:4173/?preset=short&debug=1` (30-second zone clocks, small boss HP, labelled SHORT TEST PRESET), then also play as far as you can on the normal rules.
 
 ## Report template (copy, fill in, send back)
 
@@ -64,7 +64,7 @@ Phone model + Android version:
 Chrome version (chrome://version):
 Served with: npm run phone:preview / npm run phone
 Checks 1-21 (pass/fail + note for each fail):
-Normal run reached: stage __ / boss __ / victory? (or short preset only?):
+Normal run reached: zone __ / Final Swarm seen? __ / guardians __ / Shrine? __ (or short preset only?):
 Typical FPS / FPS with many enemies:
 Screen size shown in debug corner:
 Private sprites used? (none / which roles):

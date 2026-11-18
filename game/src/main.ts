@@ -2,8 +2,8 @@
 import { GameView } from './render/scene.ts';
 import { createControls } from './input/controls.ts';
 import { SoundFx } from './audio.ts';
-import { activatePortal, canActivatePortal, chooseUpgrade, createWorld, distanceToPortal, isRunOver, quitRun, step, type World } from './sim/world.ts';
-import { SHORT_STAGES, xpToNext } from './sim/config.ts';
+import { availableAction, chooseUpgrade, createWorld, distanceToPortal, isRunOver, mapLabel, overtimeSeconds, performAction, quitRun, step, type World } from './sim/world.ts';
+import { SHORT_RULES, xpToNext } from './sim/config.ts';
 import { UPGRADES } from './sim/upgrades.ts';
 import { browserLoaderDeps, loadPrivateSprites, type SpriteLoadResult } from './sprites/loader.ts';
 import { buildCredits, spriteStatusText } from './sprites/credits.ts';
@@ -48,7 +48,7 @@ const sfx = new SoundFx();
 
 // ?preset=short = same rules with small quotas, for automated/quick tests. Clearly labelled on screen.
 const shortPreset = params.get('preset') === 'short';
-const worldOptions = shortPreset ? { stages: SHORT_STAGES } : {};
+const worldOptions = shortPreset ? { rules: SHORT_RULES } : {};
 let world: World = createWorld(seedFromUrl(), worldOptions);
 let paused = false;
 let started = false;
@@ -68,7 +68,8 @@ const startOverlay = $('start');
 const levelOverlay = $('levelup');
 const resultOverlay = $('result');
 const pauseOverlay = $('pause-menu');
-const portalBtn = $('portal-btn');
+const actionBtn = $('action-btn');
+const zoneClock = $('zone-clock');
 const objectiveText = $('objective-text');
 const bossBar = $('boss-bar');
 const bossFill = $('boss-fill');
@@ -117,13 +118,18 @@ function syncOverlays(): void {
   if (world.phase !== 'levelup') choicesEl.innerHTML = '';
   const r = world.result;
   if (r) {
-    const title = r.outcome === 'victory' ? 'Victory!' : r.outcome === 'quit' ? 'Run abandoned' : 'Defeated';
+    const title = r.outcome === 'shrine-cleared' ? 'Legendary defeated' : r.outcome === 'quit' ? 'Run abandoned' : 'Defeated';
     $('result-title').textContent = title;
     resultOverlay.dataset.outcome = r.outcome;
+    const lead =
+      r.outcome === 'shrine-cleared'
+        ? 'You beat the Shrine Legendary. The Shrine finale is still a PROTOTYPE (its real win/exit rules are not confirmed), so this is NOT recorded as a completed run.'
+        : r.outcome === 'quit'
+          ? 'You quit the run.'
+          : 'You were knocked out.';
     $('result-summary').textContent =
-      `${r.outcome === 'victory' ? 'You cleared every stage and left through the final portal.' : r.outcome === 'quit' ? 'You quit the run.' : 'You were knocked out.'} ` +
-      `Time ${formatTime(r.time)} · Stage ${r.stageReached}/${world.stage.count} · Stages cleared ${r.stagesCleared} · Bosses ${r.bossesDefeated} · Level ${r.level} · ${r.kills} KOs. ` +
-      'No rewards, currency or unlocks are granted in this prototype.';
+      `${lead} Time ${formatTime(r.time)} · Reached ${r.reached} · Zones cleared ${r.zonesCleared}/${world.rules.zones.length} · Guardians ${r.guardiansDefeated} · ` +
+      `Final Swarms ${r.finalSwarmsReached} · Level ${r.level} · ${r.kills} KOs. No rewards, currency or unlocks are granted in this prototype.`;
   }
 }
 
@@ -135,11 +141,12 @@ function setPaused(on: boolean): void {
   syncOverlays();
 }
 
-function tryPortal(): void {
+function tryAction(): void {
   if (paused) return;
-  if (activatePortal(world)) {
+  const done = performAction(world);
+  if (done) {
+    if (done === 'enter-portal') view.clearDynamic();
     handleEvents();
-    if (world.phase === 'playing' || world.phase === 'levelup') view.clearDynamic();
     syncOverlays();
   }
 }
@@ -164,12 +171,15 @@ function handleEvents(): void {
       case 'levelUp': sfx.play('levelup'); choicesEl.innerHTML = ''; break;
       case 'pulse': sfx.play('pulse'); view.spawnPulseRing(ev.radius); break;
       case 'defeated': sfx.play('defeat'); break;
-      case 'bossSpawned': sfx.play('boss'); break;
+      case 'guardianAwakened': sfx.play('boss'); break;
+      case 'legendaryAppeared': sfx.play('boss'); break;
+      case 'finalSwarm': sfx.play('boss'); break;
       case 'bossSlam': sfx.play('pulse'); { const b = world.enemies.find((e) => e.id === ev.id); if (b) view.spawnPulseRing(ev.radius, b.pos, 0xff3030); } break;
-      case 'bossDefeated': sfx.play('levelup'); break;
+      case 'guardianDefeated': sfx.play('levelup'); break;
       case 'portalOpened': sfx.play('portal'); break;
-      case 'stageAdvanced': sfx.play('portal'); break;
-      case 'victory': sfx.play('victory'); break;
+      case 'zoneTransition': sfx.play('portal'); break;
+      case 'shrineEntered': sfx.play('portal'); break;
+      case 'legendaryDefeated': sfx.play('victory'); break;
       default: break;
     }
   }
@@ -185,21 +195,36 @@ function updateHud(): void {
   xpText.textContent = `Lv ${p.level}  ${p.xp}/${need} XP`;
   timeEl.textContent = formatTime(world.time);
   killsEl.textContent = String(world.stats.kills);
-  const st = world.stage;
-  const label = `Stage ${st.index + 1}/${st.count} · ${st.name}`;
-  const boss = st.bossId !== null ? world.enemies.find((e) => e.id === st.bossId) : undefined;
-  if (st.state === 'objective') objectiveText.textContent = `${label} — defeat enemies ${st.kills}/${st.killQuota}`;
-  else if (st.state === 'boss') objectiveText.textContent = `${label} — the Guardian appeared! Defeat it`;
-  else objectiveText.textContent = `${label} — ${st.isFinal ? 'FINAL portal open: reach it to win' : 'portal open: reach it to continue'}`;
+  const m = world.map;
+  const boss = m.bossId !== null ? world.enemies.find((e) => e.id === m.bossId) : undefined;
+  if (m.kind === 'zone') {
+    const left = m.zoneSeconds - m.zoneTime;
+    zoneClock.textContent = m.finalSwarm ? `Zone ${m.index + 1}/${m.zoneCount} · FINAL SWARM +${formatTime(overtimeSeconds(world))}` : `Zone ${m.index + 1}/${m.zoneCount} · ${m.name} · ${formatTime(Math.max(0, Math.ceil(left)))}`;
+    zoneClock.classList.toggle('swarm', m.finalSwarm);
+    const toShrine = m.index === m.zoneCount - 1;
+    objectiveText.textContent =
+      m.state === 'explore'
+        ? 'Wake the Guardian at its altar (green arrow) when you are ready'
+        : m.state === 'guardian'
+          ? 'Defeat the Guardian!'
+          : `Portal open — stand in it and enter${toShrine ? ' (leads to the Shrine)' : ` (to Zone ${m.index + 2})`}`;
+  } else {
+    zoneClock.textContent = 'Shrine';
+    zoneClock.classList.remove('swarm');
+    objectiveText.textContent = m.state === 'intro' ? 'The Legendary approaches…' : 'Defeat the Legendary';
+  }
+  $('shrine-tag').classList.toggle('hidden', m.kind !== 'shrine');
   bossBar.classList.toggle('hidden', !boss);
   if (boss) {
     bossFill.style.width = `${(100 * boss.hp) / boss.maxHp}%`;
-    $('boss-text').textContent = `Guardian ${Math.ceil(boss.hp)} / ${boss.maxHp}`;
+    $('boss-text').textContent = `${boss.kind === 'legendary' ? 'Legendary' : 'Guardian'} ${Math.ceil(boss.hp)} / ${boss.maxHp}`;
   }
-  const canEnter = started && !paused && canActivatePortal(world);
-  portalBtn.classList.toggle('hidden', !canEnter);
-  portalBtn.classList.toggle('final', st.isFinal);
-  portalBtn.textContent = st.isFinal ? 'Enter final portal' : 'Enter portal';
+  const act = started && !paused ? availableAction(world) : null;
+  actionBtn.classList.toggle('hidden', !act);
+  actionBtn.classList.toggle('altar', act === 'wake-guardian');
+  actionBtn.classList.toggle('shrine', act === 'enter-portal' && m.index === m.zoneCount - 1);
+  actionBtn.dataset.action = act ?? '';
+  actionBtn.textContent = act === 'wake-guardian' ? 'Wake Guardian' : act === 'enter-portal' ? (m.index === m.zoneCount - 1 ? 'Enter portal to Shrine' : 'Enter portal') : '';
 }
 
 const debugEl = $('debug');
@@ -304,7 +329,7 @@ $('fullscreen').addEventListener('click', toggleFullscreen);
 $('pause').addEventListener('click', () => setPaused(!paused));
 $('resume-btn').addEventListener('click', () => setPaused(false));
 $('quit-btn').addEventListener('click', quit);
-portalBtn.addEventListener('click', tryPortal);
+actionBtn.addEventListener('click', tryAction);
 $('mute').addEventListener('click', () => {
   sfx.muted = !sfx.muted;
   $('mute').textContent = sfx.muted ? '🔇' : '🔊';
@@ -320,7 +345,7 @@ controls.onKey((code) => {
   else if (world.phase === 'levelup' && /^(Digit|Numpad)[123]$/.test(code)) pick(Number(code.slice(-1)) - 1);
   else if (isRunOver(world) && (code === 'KeyR' || code === 'Enter')) restart();
   else if (world.phase === 'playing' && (code === 'Escape' || code === 'KeyP')) setPaused(true);
-  else if (world.phase === 'playing' && (code === 'KeyE' || code === 'Space')) tryPortal();
+  else if (world.phase === 'playing' && (code === 'KeyE' || code === 'Space')) tryAction();
   else if (code === 'KeyM') $('mute').click();
 });
 window.addEventListener('resize', () => view.resize());
@@ -341,9 +366,9 @@ Object.defineProperty(window, '__arenaSlice', {
       enemies: world.enemies.length,
       paused,
       preset: shortPreset ? 'short' : 'normal',
-      stage: { index: world.stage.index, count: world.stage.count, state: world.stage.state, kills: world.stage.kills, quota: world.stage.killQuota, isFinal: world.stage.isFinal, portal: world.stage.portal ? { ...world.stage.portal } : null, portalDistance: distanceToPortal(world), canEnter: canActivatePortal(world) },
-      boss: (() => { const b = world.enemies.find((e) => e.id === world.stage.bossId); return b ? { hp: b.hp, maxHp: b.maxHp, x: b.pos.x, z: b.pos.z, ai: b.ai } : null; })(),
-      enemyPositions: world.enemies.map((e) => [Math.round(e.pos.x * 10) / 10, Math.round(e.pos.z * 10) / 10, e.kind === 'boss' ? 1 : 0]),
+      map: { kind: world.map.kind, index: world.map.index, zoneCount: world.map.zoneCount, name: world.map.name, label: mapLabel(world.map), state: world.map.state, zoneTime: world.map.zoneTime, zoneSeconds: world.map.zoneSeconds, finalSwarm: world.map.finalSwarm, altar: world.map.altar ? { x: world.map.altar.pos.x, z: world.map.altar.pos.z, state: world.map.altar.state } : null, portal: world.map.portal ? { ...world.map.portal } : null, portalDistance: distanceToPortal(world), action: availableAction(world) },
+      boss: (() => { const b = world.enemies.find((e) => e.id === world.map.bossId); return b ? { kind: b.kind, hp: b.hp, maxHp: b.maxHp, x: b.pos.x, z: b.pos.z, ai: b.ai } : null; })(),
+      enemyPositions: world.enemies.map((e) => [Math.round(e.pos.x * 10) / 10, Math.round(e.pos.z * 10) / 10, e.kind === 'boss' || e.kind === 'legendary' ? 1 : 0]),
       orbPositions: world.orbs.slice(0, 60).map((o) => [Math.round(o.pos.x * 10) / 10, Math.round(o.pos.z * 10) / 10]),
       result: world.result ? { ...world.result } : null,
       stats: { ...world.stats },

@@ -7,7 +7,7 @@ export interface CreditLine {
   lines: string[];
 }
 
-const ROLE_LABEL: Record<SpriteRole, string> = { player: 'Player sprite', chaser: 'Chaser enemy sprite', brute: 'Brute enemy sprite', boss: 'Boss sprite' };
+const ROLE_LABEL: Record<SpriteRole, string> = { player: 'Player sprite', chaser: 'Chaser enemy sprite', brute: 'Brute enemy sprite', boss: 'Guardian sprite', legendary: 'Legendary sprite' };
 
 export const BASE_CREDITS: readonly CreditLine[] = [
   {
