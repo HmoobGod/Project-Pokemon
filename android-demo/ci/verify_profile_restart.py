@@ -58,7 +58,15 @@ def force_stop() -> None:
 
 
 def start() -> str:
-    adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+    # Android Gradle UTP can remove the tested package during teardown. The
+    # workflow explicitly installs our own debug APK before this script.
+    # A missing target is a harness failure, not a missing/empty player save.
+    installed = adb("shell", "pm", "path", PACKAGE).strip()
+    if not installed.startswith(b"package:"):
+        raise AssertionError("Disposable debug app is not installed; no reset")
+    launch = adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+    if b"Error:" in launch or b"Status: timeout" in launch:
+        raise AssertionError("Android activity launch was rejected or timed out")
     return wait_for_process_present()
 
 
