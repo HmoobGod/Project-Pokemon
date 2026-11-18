@@ -13,6 +13,7 @@ import org.junit.runner.RunWith;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.junit.Assert.*;
 
@@ -74,6 +75,44 @@ public final class OfflineSoloProfileStoreTest {
             } catch (IllegalStateException expected) {
                 assertNotNull(expected);
             }
+        }
+    }
+
+    @Test
+    public void persistedCorruptionNeverRewritesRawBytesInDisposableFixture() {
+        Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        // Unique fixture namespace: NEVER touch the app's real profile metadata
+        // or any imported/Standard/browser save, even in a failing test.
+        String fixtureName = "offline_solo_test_fixture_" + UUID.randomUUID();
+        SharedPreferences fixture = context.getSharedPreferences(fixtureName, Context.MODE_PRIVATE);
+        final String key = "fresh_profile_v1";
+        try {
+            assertFalse(fixture.contains(key));
+            String malformed = "{\"namespace\":\"unexpected\",\"schema\":1,\"id\":\"not-a-profile\"}";
+            assertTrue(fixture.edit().putString(key, malformed).commit());
+            try {
+                OfflineSoloProfileStore.openOrCreate(fixture);
+                fail("Corrupt persisted bytes must halt rather than auto-create an identity");
+            } catch (IllegalStateException expected) {
+                assertNotNull(expected);
+            }
+            assertEquals("Corrupt raw bytes were replaced", malformed, fixture.getString(key, null));
+            assertEquals("No other records may be written", 1, fixture.getAll().size());
+
+            // Android SharedPreferences may contain an unexpected *value type*.
+            // That original raw slot must also be preserved without migration.
+            assertTrue(fixture.edit().putInt(key, 17).commit());
+            try {
+                OfflineSoloProfileStore.openOrCreate(fixture);
+                fail("Wrong-type existing record must fail closed");
+            } catch (IllegalStateException expected) {
+                assertNotNull(expected);
+            }
+            assertEquals(Integer.valueOf(17), fixture.getAll().get(key));
+            assertEquals(1, fixture.getAll().size());
+        } finally {
+            // Delete only the uniquely named disposable fixture we created.
+            assertTrue(context.deleteSharedPreferences(fixtureName));
         }
     }
 }
