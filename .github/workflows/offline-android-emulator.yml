@@ -60,6 +60,12 @@ jobs:
             adb shell settings get global wifi_on
             echo 'Install and exercise disposable app + instrumentation APK on real emulator'
             gradle --no-daemon -p android-demo :app:connectedDebugAndroidTest
+            # UTP may uninstall the test target after instrumentation; install
+            # only our just-built disposable debug APK (-r preserves any data
+            # if the app remains installed). Never touch a real game package.
+            test -s android-demo/app/build/outputs/apk/debug/app-debug.apk
+            adb install -r android-demo/app/build/outputs/apk/debug/app-debug.apk
+            python3 android-demo/ci/verify_profile_restart.py
             test "$(adb shell settings get global airplane_mode_on | tr -d '\r')" = 1
             echo 'Connected instrumentation finished with airplane mode setting still enabled; validate JUnit XML in next proper bash step'
       - name: Verify exact AndroidJUnit XML from real emulator

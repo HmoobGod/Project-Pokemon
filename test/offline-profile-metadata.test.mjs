@@ -69,6 +69,25 @@ test('fresh-profile metadata has Android runtime cases for persistence and fail-
   }
   assert.match(emulatorWorkflow,/Duplicate AndroidJUnit testcase/);
   assert.match(emulatorWorkflow,/Expected exactly 5 Android tests/);
+  assert.ok(emulatorWorkflow.includes('python3 android-demo/ci/verify_profile_restart.py'));
+  assert.ok(emulatorWorkflow.includes('adb install -r android-demo/app/build/outputs/apk/debug/app-debug.apk'));
+  assert.ok(emulatorWorkflow.includes('test -s android-demo/app/build/outputs/apk/debug/app-debug.apk'));
+
+  const restart=await read('android-demo/ci/verify_profile_restart.py');
+  for(const expected of [
+    'org.projectpokemon.offlinesandbox',
+    'offline_solo_profile_metadata_v1.xml',
+    '"force-stop", PACKAGE',
+    'assert first_raw == second_raw',
+    'check_airplane_mode()',
+    'pm", "path", PACKAGE',
+    'Disposable debug app is not installed; no reset'
+  ]) assert.ok(restart.includes(expected), 'Missing restart safety gate: '+expected);
+  for(const forbidden of [
+    'pm clear','deleteSharedPreferences','pokebonk.standard',
+    'android.permission.INTERNET'
+  ]) assert.ok(!restart.includes(forbidden), 'Unsafe restart script content: '+forbidden);
+
   assert.match(emulatorWorkflow,/root\.attrib\.get\('skipped', -1\)/);
 
   assert.match(manifest,/android:allowBackup="false"/);
