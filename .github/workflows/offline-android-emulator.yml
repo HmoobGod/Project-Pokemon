@@ -76,21 +76,42 @@ jobs:
           results = Path('android-demo/app/build/outputs/androidTest-results/connected')
           reports = sorted(results.rglob('TEST-*.xml')) if results.is_dir() else []
           assert reports, 'No actual emulator AndroidJUnit XML: fail closed'
-          seen = 0
+          expected = {
+              ('org.projectpokemon.offlinesandbox.OfflineSandboxEmulatorTest',
+               'realAndroidWebViewLoadsAndRunsEntirelyOffline'),
+              ('org.projectpokemon.offlinesandbox.OfflineSoloProfileStoreTest',
+               'freshIdentityIsStableAndContainsNoProgression'),
+              ('org.projectpokemon.offlinesandbox.OfflineSoloProfileStoreTest',
+               'corruptOrForgedProfilesFailClosedWithoutStorageWrites'),
+              ('org.projectpokemon.offlinesandbox.OfflineSoloProfileStoreTest',
+               'persistedCorruptionNeverRewritesRawBytesInDisposableFixture'),
+              ('org.projectpokemon.offlinesandbox.OfflineSoloProfileStoreTest',
+               'unexpectedPrivateKeysNeverCreateOrRewriteIdentity'),
+          }
+          observed = []
           for path in reports:
               root = ET.parse(path).getroot()
               cases = list(root.iter('testcase'))
-              assert int(root.attrib.get('failures', 0)) == 0, 'Android test failures'
-              assert int(root.attrib.get('errors', 0)) == 0, 'Android test errors'
-              assert int(root.attrib.get('skipped', 0)) == 0, 'Android tests skipped'
+              assert int(root.attrib.get('tests', -1)) == len(cases), (
+                  f'Mismatched XML suite test count in {path}')
+              assert int(root.attrib.get('failures', -1)) == 0, 'Android test failures'
+              assert int(root.attrib.get('errors', -1)) == 0, 'Android test errors'
+              assert int(root.attrib.get('skipped', -1)) == 0, 'Android tests skipped'
               for case in cases:
-                  if case.attrib.get('name') == 'realAndroidWebViewLoadsAndRunsEntirelyOffline':
-                      assert 'OfflineSandboxEmulatorTest' in case.attrib.get('classname','')
-                      assert not any(case.find(tag) is not None for tag in ('failure', 'error', 'skipped'))
-                      seen += 1
+                  assert not any(case.find(tag) is not None
+                                 for tag in ('failure', 'error', 'skipped')), (
+                      f'Failed/skipped testcase in {path}: {case.attrib}')
+                  observed.append((case.attrib.get('classname'),
+                                   case.attrib.get('name')))
               print('Real emulator report', path, 'testcases=', len(cases))
-          assert seen == 1, f'Expected exactly one on-emulator WebView test; got {seen}'
-          print('PASS: on-emulator WebView test ran, no failures/errors/skips')
+          assert len(observed) == len(set(observed)), (
+              f'Duplicate AndroidJUnit testcase(s): {observed}')
+          assert set(observed) == expected, (
+              f'Expected ALL FIVE exact AndroidJUnit cases; missing='
+              f'{sorted(expected - set(observed))} unexpected='
+              f'{sorted(set(observed) - expected)}')
+          assert len(observed) == 5, f'Expected exactly 5 Android tests; got {len(observed)}'
+          print('PASS: all five real emulator AndroidJUnit cases verified with no failures/errors/skips')
           PY
       - name: Capture emulator/AndroidJUnit evidence when available
         if: always()
