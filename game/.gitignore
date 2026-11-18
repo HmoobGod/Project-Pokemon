@@ -1,3 +1,16 @@
 node_modules/
 dist/
 smoke-output/
+
+# Private / third-party art never goes in this public repo (owner keeps it locally).
+private-models/
+private-sprites/
+private-assets/
+*.glb
+*.gltf
+*.fbx
+*.obj
+*.vrm
+*.png
+*.gif
+*.webp

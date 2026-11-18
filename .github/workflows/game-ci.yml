@@ -1,0 +1,93 @@
+name: Game CI (game/)
+
+on:
+  push:
+    paths:
+      - 'game/**'
+      - '.github/workflows/game-ci.yml'
+  pull_request:
+    paths:
+      - 'game/**'
+      - '.github/workflows/game-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: game
+
+jobs:
+  build-and-test:
+    name: Unit tests, typecheck, Vite build, offline check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: No private models / third-party art tracked under game/
+        run: |
+          set -euo pipefail
+          if git ls-files . | grep -iE '\.(glb|gltf|fbx|obj|vrm|png|gif|webp|jpe?g|ogg|mp3|wav)$|(^|/)private-(models|sprites|assets)/'; then
+            echo 'Tracked model/image/audio or private asset file found under game/' >&2
+            exit 1
+          fi
+      - name: Install dependencies (bootstrap lockfile if missing)
+        run: |
+          set -euo pipefail
+          if [[ -f package-lock.json ]]; then
+            npm ci --no-audit --no-fund
+          else
+            echo '::warning::game/package-lock.json missing; resolving with npm install (NOT reproducible) and uploading the lockfile'
+            npm install --no-audit --no-fund
+          fi
+      - name: Upload resolved lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-package-lock
+          path: game/package-lock.json
+      - name: Tool versions
+        run: node -v && npx tsc -v && npx vite --version
+      - name: Unit tests
+        run: npm test
+      - name: Strict TypeScript typecheck
+        run: npm run typecheck
+      - name: Vite production build
+        run: npm run build
+      - name: Offline-reference check
+        run: npm run check:offline
+      - name: Upload Vite build
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-dist
+          path: game/dist
+
+  browser-smoke:
+    name: Headless Chromium smoke (Vite build)
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.16.0'
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          if [[ -f package-lock.json ]]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+      - name: Install Chromium + system deps
+        run: npx playwright install --with-deps chromium
+      - name: Vite production build
+        run: npm run build
+      - name: Smoke test (keyboard, touch, level-up, defeat, restart, phone portrait, no network)
+        run: npm run smoke
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: game-smoke-evidence
+          path: game/smoke-output

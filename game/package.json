@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "check:offline": "node tools/check-offline.mjs dist",
-    "smoke": "node tools/smoke.mjs dist"
+    "smoke": "node tools/smoke.mjs dist smoke-output"
   },
   "dependencies": {
     "three": "0.180.0"
@@ -20,7 +20,11 @@
   "devDependencies": {
     "@types/three": "0.180.0",
     "esbuild": "^0.25.0",
+    "playwright": "^1.55.0",
     "typescript": "^5.8.3",
     "vite": "^7.1.0"
+  },
+  "engines": {
+    "node": ">=22.12"
   }
 }

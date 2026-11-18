@@ -1,14 +1,26 @@
-// Real browser smoke test: drives the BUILT game with keyboard + touch input in headless Chrome,
-// blocks every non-local request, and saves screenshots. Usage: node tools/smoke.mjs dist [outDir]
+// Real browser smoke test: drives the BUILT game with keyboard + touch input in headless Chromium,
+// serves dist/ from a loopback-only static server, blocks every other request, saves screenshots.
+// Usage: node tools/smoke.mjs dist [outDir]
 import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { resolve, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { createServer } from 'node:http';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { resolve, join, normalize, extname, sep } from 'node:path';
 
 const dist = resolve(process.argv[2] ?? 'dist');
 const out = resolve(process.argv[3] ?? 'smoke-output');
 mkdirSync(out, { recursive: true });
-const url = pathToFileURL(join(dist, 'index.html')).href + '?seed=12345';
+const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const server = createServer((req, res) => {
+  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+  const file = normalize(join(dist, path === '/' ? 'index.html' : path));
+  if (!file.startsWith(dist + sep) || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
+  res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
+  res.end(readFileSync(file));
+});
+await new Promise((r) => server.listen(0, '127.0.0.1', r));
+const origin = `http://127.0.0.1:${server.address().port}`;
+const url = `${origin}/index.html?seed=12345`;
+const isLocal = (u) => u.startsWith(origin + '/') || u.startsWith('data:') || u.startsWith('blob:');
 const log = [];
 const note = (m) => { log.push(m); console.log(m); };
 const fail = (m) => { throw new Error(m); };
@@ -25,7 +37,7 @@ page.on('pageerror', (e) => errors.push(String(e)));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 await context.route('**/*', (route) => {
   const u = route.request().url();
-  if (u.startsWith('file:') || u.startsWith('data:')) return route.continue();
+  if (isLocal(u)) return route.continue();
   blocked.push(u);
   return route.abort();
 });
@@ -46,6 +58,13 @@ try {
   await page.waitForFunction(() => !!window.__arenaSlice);
   const gl = await page.evaluate(() => { const c = document.createElement('canvas'); const g = c.getContext('webgl2') || c.getContext('webgl'); return g ? g.getParameter(g.VERSION) : null; });
   note(`WebGL: ${gl}`);
+  if (!gl) fail('no WebGL context available');
+  const renderer = await page.evaluate(() => { const g = document.createElement('canvas').getContext('webgl'); const ext = g && g.getExtension('WEBGL_debug_renderer_info'); return ext ? g.getParameter(ext.UNMASKED_RENDERER_WEBGL) : 'unknown'; });
+  note(`WebGL renderer: ${renderer}`);
+  // Prove the game canvas actually rendered pixels (read in the same frame, after the game's own render).
+  const pixels = await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => { const c = document.getElementById('view'); const t = document.createElement('canvas'); t.width = 64; t.height = 40; const x = t.getContext('2d'); x.drawImage(c, 0, 0, 64, 40); const d = x.getImageData(0, 0, 64, 40).data; const set = new Set(); let lit = 0; for (let i = 0; i < d.length; i += 4) { set.add(`${d[i] >> 4},${d[i + 1] >> 4},${d[i + 2] >> 4}`); if (d[i] + d[i + 1] + d[i + 2] > 60) lit++; } done({ distinctColours: set.size, litPixels: lit, total: d.length / 4 }); })));
+  note(`canvas pixels: ${JSON.stringify(pixels)}`);
+  if (pixels.litPixels < pixels.total * 0.5 || pixels.distinctColours < 4) fail('game canvas did not render a scene');
   await page.screenshot({ path: join(out, '01-start.png') });
   await page.click('#start-btn');
   let s = await waitFor((x) => x.started, 2000, 'start');
@@ -118,7 +137,7 @@ try {
 
   // Portrait phone-sized viewport: tap Start, drag the joystick upward, confirm movement.
   const phone = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-  await phone.route('**/*', (route) => { const u = route.request().url(); if (u.startsWith('file:') || u.startsWith('data:')) return route.continue(); blocked.push(u); return route.abort(); });
+  await phone.route('**/*', (route) => { const u = route.request().url(); if (isLocal(u)) return route.continue(); blocked.push(u); return route.abort(); });
   const pp = await phone.newPage();
   pp.on('pageerror', (e) => errors.push(String(e)));
   await pp.goto(url);
@@ -150,4 +169,5 @@ try {
 } finally {
   writeFileSync(join(out, 'smoke-log.txt'), log.join('\n') + '\n');
   await browser.close();
+  server.close();
 }

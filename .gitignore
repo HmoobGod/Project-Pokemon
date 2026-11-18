@@ -17,3 +17,8 @@ client-catalog-byte-verified.json
 # Local artifacts
 .DS_Store
 *.log
+# 3D models (private game models stay local, never committed)
+*.glb
+*.gltf
+*.fbx
+*.vrm
