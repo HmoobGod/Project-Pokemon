@@ -88,6 +88,23 @@ test('fresh-profile metadata has Android runtime cases for persistence and fail-
     'android.permission.INTERNET'
   ]) assert.ok(!restart.includes(forbidden), 'Unsafe restart script content: '+forbidden);
 
+  // Runtime restart verification must distinguish normal toybox pidof rc=1
+  // from broken ADB transport before it certifies a stopped app.
+  assert.ok(restart.includes('result.returncode == 1 and not result.stdout and not result.stderr'));
+  assert.ok(restart.includes('adb("get-state")'));
+  assert.ok(restart.includes('Malformed sandbox pidof response'));
+  assert.ok(!restart.includes('adb("shell", "pidof", PACKAGE, check=False)'));
+  assert.ok(restart.includes('two launches after debug APK installation'));
+  assert.ok(!restart.includes('PASS: no account reset, profile exposure, game reward'));
+  const sourceWorkflow=await read('.github/workflows/source-tests.yml');
+  assert.ok(sourceWorkflow.includes("python3 -m unittest discover -s android-demo/ci -p 'test_*.py' -v"));
+  const faultTests=await read('android-demo/ci/test_verify_profile_restart.py');
+  for(const required of ['test_adb_transport_failure_is_not_absent',
+    'test_absent_process_on_connected_device', 'test_force_stop_propagates_transport_failure',
+    'test_same_process_fails', 'test_changed_raw_bytes_fail']) {
+    assert.ok(faultTests.includes(required), 'Missing runnable fault injection: '+required);
+  }
+
   assert.match(emulatorWorkflow,/root\.attrib\.get\('skipped', -1\)/);
 
   assert.match(manifest,/android:allowBackup="false"/);

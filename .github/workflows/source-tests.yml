@@ -33,6 +33,8 @@ jobs:
             echo 'Unexpected binary game or distribution content' >&2
             exit 1
           fi
+      - name: Python Android restart fault injection (no emulator or private data)
+        run: python3 -m unittest discover -s android-demo/ci -p 'test_*.py' -v
       - name: Progression and catalog tests
         run: npm run test
       - name: TypeScript strict typecheck
