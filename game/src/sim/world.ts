@@ -33,18 +33,18 @@ import {
   SPAWN,
   STRIKE_GRACE,
   UNOWN,
-  BLESSING_TIERS,
   blessingIsEvidenced,
   spawnInterval,
   xpToNext,
+  type BlessingRarity,
   type BlessingStat,
-  type BlessingTier,
   type EnemyKind,
   type Obstacle,
   type RunRules,
   type ZoneDef,
 } from './config.ts';
 import { UPGRADES, UPGRADE_ORDER, type UpgradeId } from './upgrades.ts';
+import { rollBlessingOffer, type BlessingOption } from './blessings.ts';
 
 export interface Vec2 {
   x: number;
@@ -54,12 +54,13 @@ export interface Vec2 {
 export type Phase = 'playing' | 'levelup' | 'blessing' | 'defeated' | 'quit' | 'victory';
 export type Outcome = 'defeat' | 'quit' | 'victory';
 
-/** A picked Unown blessing. `applied` is true only when that tier had evidenced stat + amount + source. */
+/** A picked Unown blessing. `applied` is true only when the option carried an evidenced effect. */
 export interface BlessingRecord {
-  tier: BlessingTier;
+  rarity: BlessingRarity;
   stat: BlessingStat | null;
   amount: number | null;
   applied: boolean;
+  rarityEvidenced: boolean;
 }
 
 export interface PlayerState {
@@ -81,6 +82,8 @@ export interface PlayerState {
   magnetRadius: number;
   pulseLevel: number;
   pulseTimer: number;
+  /** Luck stat (owner: influences blessing rarity). No sources of Luck and no formula are known yet: stays 0 and unused. */
+  luck: number;
   upgradesTaken: UpgradeId[];
 }
 
@@ -177,7 +180,7 @@ export type GameEvent =
   | { type: 'pulse'; radius: number; hits: number }
   | { type: 'finalSwarm'; zone: number }
   | { type: 'unownCharged'; zone: number }
-  | { type: 'blessingChosen'; tier: BlessingTier; applied: boolean }
+  | { type: 'blessingChosen'; rarity: BlessingRarity; applied: boolean }
   | { type: 'challengeStarted'; zone: number; species: string; total: number }
   | { type: 'challengeWon'; zone: number }
   | { type: 'challengeFailed'; zone: number; reason: 'defeat' | 'left-zone' }
@@ -245,8 +248,8 @@ export interface World {
   spawnTimer: number;
   pendingLevelUps: number;
   choices: UpgradeId[] | null;
-  /** Unown blessing offer (phase 'blessing'): the tiers on offer */
-  blessingChoices: BlessingTier[] | null;
+  /** Unown blessing offer (phase 'blessing'): three randomized options */
+  blessingChoices: BlessingOption[] | null;
   /** run-only blessings picked */
   blessings: BlessingRecord[];
   /** set ONCE when the final Legendary is defeated */
@@ -337,6 +340,7 @@ export function createWorld(seed: number, options: WorldOptions = {}): World {
       magnetRadius: PLAYER_BASE.magnetRadius,
       pulseLevel: 0,
       pulseTimer: 0,
+      luck: 0,
       upgradesTaken: [],
     },
     enemies: [],
@@ -465,25 +469,24 @@ function updateUnown(world: World, dt: number): void {
     u.charge = 1;
     u.state = 'choosing';
     world.phase = 'blessing';
-    // PROVISIONAL offer: one card per tier (how tiers are really offered is not established)
-    world.blessingChoices = [...BLESSING_TIERS];
+    // three randomized options (owner rule); rarity odds/Luck/effects are evidence-gated inside the roll
+    world.blessingChoices = rollBlessingOffer(world.rng, world.player.luck, world.rules.rarityOdds, world.rules.blessingEffects);
     world.events.push({ type: 'unownCharged', zone: world.map.index + 1 });
   }
 }
 
-/** Pick one offered Unown blessing tier. Applies a stat buff ONLY if that tier's row is evidenced. */
+/** Pick ONE of the offered blessings (one pick per choice). Applies a buff ONLY if the option has an evidenced effect. */
 export function chooseBlessing(world: World, index: number): boolean {
   if (world.phase !== 'blessing' || !world.blessingChoices) return false;
   if (!Number.isInteger(index) || index < 0 || index >= world.blessingChoices.length) return false;
-  const tier = world.blessingChoices[index]!;
-  const ev = world.rules.blessings.find((b) => b.tier === tier);
-  const applied = !!ev && blessingIsEvidenced(ev);
-  if (applied) applyBlessingStat(world.player, ev!.stat!, ev!.amount!);
-  world.blessings.push({ tier, stat: ev?.stat ?? null, amount: ev?.amount ?? null, applied });
+  const opt = world.blessingChoices[index]!;
+  const applied = blessingIsEvidenced(opt.effect);
+  if (applied) applyBlessingStat(world.player, opt.effect!.stat, opt.effect!.amount);
+  world.blessings.push({ rarity: opt.rarity, stat: opt.effect?.stat ?? null, amount: opt.effect?.amount ?? null, applied, rarityEvidenced: opt.rarityEvidenced });
   world.blessingChoices = null;
   if (world.map.unown) world.map.unown.state = 'spent';
   world.phase = 'playing';
-  world.events = [{ type: 'blessingChosen', tier, applied }];
+  world.events = [{ type: 'blessingChosen', rarity: opt.rarity, applied }];
   if (world.pendingLevelUps > 0) openLevelUp(world);
   return true;
 }

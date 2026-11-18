@@ -292,15 +292,18 @@ try {
           await setKeys(new Set());
           if (!(await sp.isVisible('#blessing'))) fail('blessing overlay not shown');
           const txt = await sp.textContent('#blessing');
-          if (!txt.includes('no gameplay effect yet') || !txt.includes('pending evidence')) fail('blessing UI is not labelled provisional');
+          if (!txt.includes('no gameplay effect yet') || !txt.includes('pending evidence') || !txt.includes('placeholder draw')) fail('blessing UI is not labelled provisional');
           if (!seen.has('blessingshot')) { seen.add('blessingshot'); await shot('07c-unown-blessing.png'); }
+          const cards = await sp.$$eval('#blessing-choices .choice', (els) => els.map((e) => e.dataset.rarity));
           const before = JSON.stringify(x.player);
           await sp.click('#blessing-choices .choice');
           const y = await ssnap();
           if (y.blessings.length !== 1 || y.unown.state !== 'spent' || JSON.stringify({ ...y.player, x: 0, z: 0 }) !== JSON.stringify({ ...JSON.parse(before), x: 0, z: 0 })) fail(`blessing pick wrong: ${JSON.stringify(y.blessings)} ${y.unown.state}`);
           seen.add('blessing');
-          if (JSON.stringify(x.blessingChoices) !== '[1,2,3,4]' || y.blessings[0].applied !== false) fail(`blessing tiers wrong: ${JSON.stringify(x.blessingChoices)} ${JSON.stringify(y.blessings)}`);
-          note(`  Unown circle filled at zone clock ${x.map.zoneTime.toFixed(1)}s -> tiers ${JSON.stringify(x.blessingChoices)} offered; picked tier ${y.blessings[0].tier} (stat/amount pending evidence, applied=false, no stat change); altar spent`);
+          const rar = x.blessingChoices.map((o) => o.rarity);
+          if (rar.length !== 3 || cards.length !== 3 || !rar.every((r) => ['common', 'rare', 'epic', 'legendary'].includes(r)) || JSON.stringify(cards) !== JSON.stringify(rar)) fail(`blessing offer wrong: ${JSON.stringify(rar)} cards ${JSON.stringify(cards)}`);
+          if (y.blessings[0].applied !== false || y.blessings[0].rarity !== rar[0] || x.blessingChoices.some((o) => o.effect !== null || o.rarityEvidenced)) fail(`blessing pick wrong: ${JSON.stringify(y.blessings)}`);
+          note(`  Unown circle filled at zone clock ${x.map.zoneTime.toFixed(1)}s -> 3 options offered, rarities ${JSON.stringify(rar)} (placeholder draw); picked option 1 = ${y.blessings[0].rarity}, effect pending evidence, applied=false, no stat change; altar spent`);
           continue;
         }
         if (mode === 'interactables' && x.challenge && x.challenge.state === 'active' && !seen.has(`chal${x.map.index}`)) {

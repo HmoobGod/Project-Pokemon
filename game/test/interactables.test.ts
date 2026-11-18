@@ -88,25 +88,32 @@ test('Unown charge does not advance while paused for a level-up choice', () => {
   assert.ok(u.charge > c);
 });
 
-test('blessing choice: four tiers offered; with no evidence the pick is recorded with NO stat change; altar spent; no repeat', () => {
+test('blessing choice: three options with valid rarities; with no evidence the pick changes no stat; altar spent; one pick only', () => {
   const w = quiet();
   const u = w.map.unown!;
   at(w, u.pos);
   stepFor(w, NORMAL_RULES.unownChargeSeconds + 0.1);
   assert.equal(w.phase, 'blessing');
-  assert.deepEqual(w.blessingChoices, [1, 2, 3, 4]);
+  assert.equal(w.blessingChoices!.length, 3);
+  for (const o of w.blessingChoices!) {
+    assert.ok(['common', 'rare', 'epic', 'legendary'].includes(o.rarity));
+    assert.equal(o.effect, null);
+    assert.equal(o.rarityEvidenced, false);
+    assert.equal(o.luckApplied, false);
+  }
   const t = w.time;
   stepFor(w, 3);
   assert.equal(w.time, t, 'game is paused while choosing');
   const before = JSON.stringify(w.player);
-  assert.equal(chooseBlessing(w, 7), false);
+  assert.equal(chooseBlessing(w, 3), false, 'only three options');
   assert.equal(chooseBlessing(w, -1), false);
+  const picked = w.blessingChoices![1]!;
   assert.equal(chooseBlessing(w, 1), true);
   assert.equal(JSON.stringify(w.player), before, 'no invented effect applied');
-  assert.deepEqual(w.blessings, [{ tier: 2, stat: null, amount: null, applied: false }]);
+  assert.deepEqual(w.blessings, [{ rarity: picked.rarity, stat: null, amount: null, applied: false, rarityEvidenced: false }]);
   assert.equal(u.state, 'spent');
   assert.equal(w.phase, 'playing');
-  assert.equal(chooseBlessing(w, 0), false);
+  assert.equal(chooseBlessing(w, 0), false, 'one pick per choice, not three buffs');
   stepFor(w, NORMAL_RULES.unownChargeSeconds + 1);
   assert.equal(w.phase, 'playing', 'spent altar never charges again');
   assert.equal(w.blessings.length, 1);

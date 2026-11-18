@@ -109,8 +109,9 @@ export interface RunRules {
   unownChargeSeconds: number;
   /** PLACEHOLDER: size of the Challenge altar's one-species wave (guide gives no number) */
   challengeWaveSize: number;
-  /** four-tier Unown blessing table; all-null until evidence is supplied */
-  blessings: readonly BlessingEvidence[];
+  /** Unown blessing effect table (empty until evidence) and rarity odds (unknown until evidence) */
+  blessingEffects: readonly BlessingEffectEvidence[];
+  rarityOdds: RarityOddsEvidence;
 }
 
 const ring = (n: number, r: number, radius: number, phase = 0): Obstacle[] =>
@@ -172,31 +173,56 @@ export const ZONES: readonly ZoneDef[] = [
 export const SHRINE: ShrineDef = { name: 'Shrine', ground: 0x6b5fa8, obstacles: ring(8, 20, 1.2), legendaryHp: 4000, introDelay: 3, exitPortal: { x: 0, z: 0 } };
 
 /**
- * Unown blessings. Evidence: guide #11 ("pick a blessing") + OWNER RULE 2026-11-18: blessings are selectable
- * STAT BUFFS organised in FOUR TIERS. NOT established: which stats, the amounts, how tiers are offered or
- * sequenced, stacking, persistence. So every tier below has stat = null and amount = null, and a blessing
- * changes the player ONLY when its tier row has a stat, an amount AND a cited source. Fill these rows from
- * owner/authorised evidence; never guess numbers here.
+ * Unown blessings. Evidence: guide #11 ("pick a blessing") + OWNER CORRECTION 2026-11-18 (tracker):
+ * blessings are selectable STAT BUFFS with FOUR RARITIES — Common (grey), Rare (blue), Epic (purple),
+ * Legendary (gold) — and a choice shows THREE randomized options whose rarity is influenced by LUCK.
+ * NOT established: rarity probabilities, the Luck formula, which buffs exist, amounts, stacking, rerolls.
+ * Rarity (how rare an option is) and effect (what it does) are kept separate on purpose.
  */
-export type BlessingTier = 1 | 2 | 3 | 4;
-export const BLESSING_TIERS: readonly BlessingTier[] = [1, 2, 3, 4];
+export const BLESSING_RARITIES = ['common', 'rare', 'epic', 'legendary'] as const;
+export type BlessingRarity = (typeof BLESSING_RARITIES)[number];
+
+export const RARITY_STYLE: Record<BlessingRarity, { label: string; color: string }> = {
+  common: { label: 'Common', color: '#9aa0a6' },
+  rare: { label: 'Rare', color: '#3d8bff' },
+  epic: { label: 'Epic', color: '#a259ff' },
+  legendary: { label: 'Legendary', color: '#ffc928' },
+};
+
+/** Owner rule: a blessing choice presents three options. */
+export const BLESSING_OPTION_COUNT = 3;
+
+/**
+ * Rarity odds. Authentic weights and the Luck formula are UNKNOWN, so `weights` is null.
+ * While null, the game uses the explicitly-labelled PLACEHOLDER equal draw below and records
+ * `rarityEvidenced: false` on every option; Luck is passed in but NOT applied. Replace with evidence only.
+ */
+export interface RarityOddsEvidence {
+  /** relative weight per rarity at Luck 0; null = unknown */
+  weights: Record<BlessingRarity, number> | null;
+  /** how Luck shifts the weights; null = unknown (Luck ignored) */
+  luckFormula: ((weights: Record<BlessingRarity, number>, luck: number) => Record<BlessingRarity, number>) | null;
+  source: string | null;
+}
+export const RARITY_ODDS_EVIDENCE: RarityOddsEvidence = { weights: null, luckFormula: null, source: null };
 
 /** Stats the simulation knows how to buff. This is an implementation capability, NOT evidence of which stats blessings use. */
 export type BlessingStat = 'damage' | 'attackSpeed' | 'moveSpeed' | 'maxHp';
 
-export interface BlessingEvidence {
-  tier: BlessingTier;
-  stat: BlessingStat | null;
-  /** damage / maxHp: flat add; attackSpeed / moveSpeed: fractional bonus (e.g. 0.1 = +10%). null = unknown */
-  amount: number | null;
-  /** where the stat/amount came from (owner message, authorised source). null = no evidence */
-  source: string | null;
+/** One known blessing effect. Applied only when stat + positive amount + cited source are all present. */
+export interface BlessingEffectEvidence {
+  rarity: BlessingRarity;
+  stat: BlessingStat;
+  /** damage / maxHp: flat add; attackSpeed / moveSpeed: fractional bonus (0.1 = +10%) */
+  amount: number;
+  source: string;
 }
 
-export const BLESSING_EVIDENCE: readonly BlessingEvidence[] = BLESSING_TIERS.map((tier) => ({ tier, stat: null, amount: null, source: null }));
+/** No effects are documented yet: empty, so every option shows "effect pending evidence" and does nothing. */
+export const BLESSING_EFFECT_EVIDENCE: readonly BlessingEffectEvidence[] = [];
 
-export function blessingIsEvidenced(e: BlessingEvidence): boolean {
-  return e.stat !== null && e.amount !== null && Number.isFinite(e.amount) && e.amount > 0 && !!e.source;
+export function blessingIsEvidenced(e: BlessingEffectEvidence | null | undefined): e is BlessingEffectEvidence {
+  return !!e && (BLESSING_RARITIES as readonly string[]).includes(e.rarity) && !!e.stat && Number.isFinite(e.amount) && e.amount > 0 && !!e.source;
 }
 
 export const FINAL_SWARM_PLACEHOLDER: FinalSwarmRules = { hpMulBase: 2, hpMulPerMinute: 0.5, damageMulBase: 1.5, damageMulPerMinute: 0.25, spawnIntervalMul: 0.6 };
@@ -210,7 +236,8 @@ export const NORMAL_RULES: RunRules = {
   enemyHpGrowthPerMinute: 0.15,
   unownChargeSeconds: 6,
   challengeWaveSize: 15,
-  blessings: BLESSING_EVIDENCE,
+  blessingEffects: BLESSING_EFFECT_EVIDENCE,
+  rarityOdds: RARITY_ODDS_EVIDENCE,
 };
 
 /**
@@ -228,7 +255,8 @@ export const SHORT_RULES: RunRules = {
   enemyHpGrowthPerMinute: 0,
   unownChargeSeconds: 3,
   challengeWaveSize: 6,
-  blessings: BLESSING_EVIDENCE,
+  blessingEffects: BLESSING_EFFECT_EVIDENCE,
+  rarityOdds: RARITY_ODDS_EVIDENCE,
 };
 
 /** While a guardian/legendary is awake or a portal is up, normal spawns slow down by this factor. */

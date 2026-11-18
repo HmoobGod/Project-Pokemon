@@ -16,7 +16,21 @@ import {
   wakeGuardian,
   type World,
 } from '../src/sim/world.ts';
-import { BLESSING_EVIDENCE, BLESSING_TIERS, NORMAL_RULES, PORTAL, blessingIsEvidenced, type BlessingEvidence, type RunRules } from '../src/sim/config.ts';
+import {
+  BLESSING_EFFECT_EVIDENCE,
+  BLESSING_OPTION_COUNT,
+  BLESSING_RARITIES,
+  NORMAL_RULES,
+  PORTAL,
+  RARITY_ODDS_EVIDENCE,
+  RARITY_STYLE,
+  blessingIsEvidenced,
+  type BlessingEffectEvidence,
+  type RarityOddsEvidence,
+  type RunRules,
+} from '../src/sim/config.ts';
+import { oddsAreEvidenced, rollBlessingOffer } from '../src/sim/blessings.ts';
+import { createRng } from '../src/sim/rng.ts';
 
 const DT = 1 / 60;
 const still = { x: 0, z: 0 };
@@ -154,59 +168,95 @@ test('victory carries no reward/currency data', () => {
   for (const word of ['stardust', 'bonkoin', 'pokedollar', 'currency', 'reward', 'payout', 'unlock']) assert.ok(!json.includes(word), word);
 });
 
-// ---------- four-tier Unown blessings: evidence-gated ----------
-test('shipped blessing table: exactly tiers 1-4, every stat/amount/source empty (no invented values)', () => {
-  assert.deepEqual(BLESSING_TIERS, [1, 2, 3, 4]);
-  assert.equal(BLESSING_EVIDENCE.length, 4);
-  for (const e of BLESSING_EVIDENCE) {
-    assert.deepEqual([e.stat, e.amount, e.source], [null, null, null]);
-    assert.equal(blessingIsEvidenced(e), false);
+// ---------- Unown blessings: three randomized options, four rarities, evidence-gated ----------
+test('shipped blessing data: four rarities with colours, three options, no effects, no rarity odds, no Luck formula', () => {
+  assert.deepEqual([...BLESSING_RARITIES], ['common', 'rare', 'epic', 'legendary']);
+  assert.deepEqual(Object.keys(RARITY_STYLE), ['common', 'rare', 'epic', 'legendary']);
+  assert.deepEqual(
+    BLESSING_RARITIES.map((r) => RARITY_STYLE[r].label),
+    ['Common', 'Rare', 'Epic', 'Legendary'],
+  );
+  assert.equal(BLESSING_OPTION_COUNT, 3);
+  assert.equal(BLESSING_EFFECT_EVIDENCE.length, 0, 'no invented effects');
+  assert.deepEqual(RARITY_ODDS_EVIDENCE, { weights: null, luckFormula: null, source: null }, 'no invented odds');
+  assert.equal(oddsAreEvidenced(RARITY_ODDS_EVIDENCE), false);
+  assert.equal(NORMAL_RULES.blessingEffects, BLESSING_EFFECT_EVIDENCE);
+  assert.equal(createWorld(1).player.luck, 0);
+});
+
+test('seeded offers: always exactly 3 options, only valid rarities, deterministic per seed, flagged as placeholder rarity', () => {
+  for (let seed = 1; seed <= 200; seed++) {
+    const a = rollBlessingOffer(createRng(seed), 0, RARITY_ODDS_EVIDENCE, BLESSING_EFFECT_EVIDENCE);
+    const b = rollBlessingOffer(createRng(seed), 0, RARITY_ODDS_EVIDENCE, BLESSING_EFFECT_EVIDENCE);
+    assert.equal(a.length, 3);
+    assert.deepEqual(a, b, 'same seed -> same offer');
+    for (const o of a) {
+      assert.ok((BLESSING_RARITIES as readonly string[]).includes(o.rarity));
+      assert.equal(o.effect, null);
+      assert.equal(o.rarityEvidenced, false);
+      assert.equal(o.luckApplied, false);
+    }
   }
-  assert.equal(NORMAL_RULES.blessings, BLESSING_EVIDENCE);
 });
 
-test('evidence gate: a row needs stat AND positive finite amount AND source', () => {
-  const ok: BlessingEvidence = { tier: 1, stat: 'damage', amount: 1, source: 'TEST FIXTURE' };
-  assert.equal(blessingIsEvidenced(ok), true);
-  assert.equal(blessingIsEvidenced({ ...ok, stat: null }), false);
-  assert.equal(blessingIsEvidenced({ ...ok, amount: null }), false);
-  assert.equal(blessingIsEvidenced({ ...ok, amount: 0 }), false);
-  assert.equal(blessingIsEvidenced({ ...ok, amount: Number.NaN }), false);
-  assert.equal(blessingIsEvidenced({ ...ok, source: null }), false);
-  assert.equal(blessingIsEvidenced({ ...ok, source: '' }), false);
+test('no fixed rarity lineup: offers vary across seeds, repeats are allowed, and there is never a fixed four-rarity set', () => {
+  const lineups = new Set<string>();
+  let sawRepeat = false;
+  for (let seed = 1; seed <= 200; seed++) {
+    const o = rollBlessingOffer(createRng(seed), 0, RARITY_ODDS_EVIDENCE, BLESSING_EFFECT_EVIDENCE).map((x) => x.rarity);
+    assert.notEqual(o.length, 4);
+    lineups.add(o.join(','));
+    if (new Set(o).size < o.length) sawRepeat = true;
+  }
+  assert.ok(lineups.size > 10, `offers vary: ${lineups.size} distinct lineups`);
+  assert.ok(sawRepeat, 'options are independent draws (no assumption that rarities are distinct)');
 });
 
-test('mechanism (TEST-ONLY fixture values, not game data): an evidenced tier applies its stat once; unevidenced tiers do nothing', () => {
-  // These numbers exist only inside this test to prove the plumbing. They are NOT shipped or claimed as authentic.
-  const fixture: BlessingEvidence[] = [
-    { tier: 1, stat: 'damage', amount: 3, source: 'TEST FIXTURE ONLY' },
-    { tier: 2, stat: null, amount: null, source: null },
-    { tier: 3, stat: 'maxHp', amount: 10, source: 'TEST FIXTURE ONLY' },
-    { tier: 4, stat: 'moveSpeed', amount: 0.1, source: null },
-  ];
-  const rules: RunRules = { ...NORMAL_RULES, blessings: fixture };
-  const pick = (index: number) => {
-    const w = createWorld(4, { rules });
-    w.spawnTimer = 1e9;
-    w.player.attackTimer = 1e9;
-    at(w, w.map.unown!.pos);
-    for (let i = 0; i < 60 * (rules.unownChargeSeconds + 0.2); i++) step(w, still, DT);
-    assert.equal(w.phase, 'blessing');
-    const before = { ...w.player };
-    assert.equal(chooseBlessing(w, index), true);
-    return { w, before };
+test('Luck is passed but NOT applied while the formula is unknown (same offer for any Luck)', () => {
+  for (const luck of [0, 5, 100]) {
+    assert.deepEqual(
+      rollBlessingOffer(createRng(77), luck, RARITY_ODDS_EVIDENCE, BLESSING_EFFECT_EVIDENCE),
+      rollBlessingOffer(createRng(77), 0, RARITY_ODDS_EVIDENCE, BLESSING_EFFECT_EVIDENCE),
+    );
+  }
+});
+
+test('odds plumbing (TEST-ONLY fixture weights, not game data): evidenced weights + Luck formula are honoured', () => {
+  const onlyEpic: RarityOddsEvidence = { weights: { common: 0, rare: 0, epic: 1, legendary: 0 }, luckFormula: null, source: 'TEST FIXTURE ONLY' };
+  for (const o of rollBlessingOffer(createRng(5), 0, onlyEpic, [])) {
+    assert.equal(o.rarity, 'epic');
+    assert.equal(o.rarityEvidenced, true);
+    assert.equal(o.luckApplied, false);
+  }
+  const luckToLegendary: RarityOddsEvidence = {
+    weights: { common: 1, rare: 0, epic: 0, legendary: 0 },
+    luckFormula: (w, luck) => (luck >= 10 ? { common: 0, rare: 0, epic: 0, legendary: 1 } : w),
+    source: 'TEST FIXTURE ONLY',
   };
-  const t1 = pick(0);
-  assert.equal(t1.w.player.damage, t1.before.damage + 3);
-  assert.deepEqual(t1.w.blessings, [{ tier: 1, stat: 'damage', amount: 3, applied: true }]);
-  const t2 = pick(1);
-  assert.equal(JSON.stringify(t2.w.player), JSON.stringify(t2.before));
-  assert.equal(t2.w.blessings[0]!.applied, false);
-  const t3 = pick(2);
-  assert.equal(t3.w.player.maxHp, t3.before.maxHp + 10);
-  const t4 = pick(3);
-  assert.equal(t4.w.player.speed, t4.before.speed, 'no source -> not applied');
-  assert.equal(t4.w.blessings[0]!.applied, false);
+  assert.ok(rollBlessingOffer(createRng(5), 0, luckToLegendary, []).every((o) => o.rarity === 'common'));
+  assert.ok(rollBlessingOffer(createRng(5), 10, luckToLegendary, []).every((o) => o.rarity === 'legendary' && o.luckApplied));
+  assert.equal(oddsAreEvidenced({ ...onlyEpic, source: null }), false, 'weights without a source are not used');
+});
+
+test('effect gate (TEST-ONLY fixture effect): only an evidenced effect of the drawn rarity applies, once, on the one picked option', () => {
+  const effects: BlessingEffectEvidence[] = [{ rarity: 'rare', stat: 'damage', amount: 3, source: 'TEST FIXTURE ONLY' }];
+  const odds: RarityOddsEvidence = { weights: { common: 0, rare: 1, epic: 0, legendary: 0 }, luckFormula: null, source: 'TEST FIXTURE ONLY' };
+  const rules: RunRules = { ...NORMAL_RULES, blessingEffects: effects, rarityOdds: odds };
+  const w = createWorld(4, { rules });
+  w.spawnTimer = 1e9;
+  w.player.attackTimer = 1e9;
+  at(w, w.map.unown!.pos);
+  for (let i = 0; i < 60 * (rules.unownChargeSeconds + 0.2); i++) step(w, still, DT);
+  assert.equal(w.phase, 'blessing');
+  assert.ok(w.blessingChoices!.every((o) => o.effect?.stat === 'damage'));
+  const d = w.player.damage;
+  chooseBlessing(w, 0);
+  assert.equal(w.player.damage, d + 3, 'one option applied, not all three');
+  assert.deepEqual(w.blessings, [{ rarity: 'rare', stat: 'damage', amount: 3, applied: true, rarityEvidenced: true }]);
+  assert.equal(blessingIsEvidenced({ ...effects[0]!, source: '' }), false);
+  assert.equal(blessingIsEvidenced({ ...effects[0]!, amount: 0 }), false);
+  assert.equal(blessingIsEvidenced({ ...effects[0]!, amount: Number.NaN }), false);
+  assert.equal(blessingIsEvidenced(null), false);
 });
 
 test('applyBlessingStat math for each supported stat', () => {

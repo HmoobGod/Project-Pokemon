@@ -3,7 +3,7 @@ import { GameView } from './render/scene.ts';
 import { createControls } from './input/controls.ts';
 import { SoundFx } from './audio.ts';
 import { availableAction, chooseBlessing, chooseUpgrade, createWorld, distanceToPortal, isRunOver, mapLabel, overtimeSeconds, performAction, quitRun, step, type World } from './sim/world.ts';
-import { SHORT_RULES, blessingIsEvidenced, xpToNext } from './sim/config.ts';
+import { RARITY_STYLE, SHORT_RULES, blessingIsEvidenced, xpToNext } from './sim/config.ts';
 import { drawMap } from './ui/minimap.ts';
 import { UPGRADES } from './sim/upgrades.ts';
 import { browserLoaderDeps, loadPrivateSprites, type SpriteLoadResult } from './sprites/loader.ts';
@@ -157,16 +157,20 @@ function syncOverlays(): void {
 
 function renderBlessings(): void {
   blessingChoicesEl.innerHTML = '';
-  (world.blessingChoices ?? []).forEach((tier, i) => {
-    const ev = world.rules.blessings.find((b) => b.tier === tier);
-    const ok = !!ev && blessingIsEvidenced(ev);
+  (world.blessingChoices ?? []).forEach((opt, i) => {
+    const st = RARITY_STYLE[opt.rarity];
+    const ok = blessingIsEvidenced(opt.effect);
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'choice';
-    b.dataset.blessing = String(tier);
-    b.innerHTML = ok
-      ? `<b>${i + 1}. Tier ${tier} stat buff</b>${ev!.stat} +${ev!.amount}`
-      : `<b>${i + 1}. Tier ${tier} stat buff</b>Stat &amp; amount pending evidence (no effect yet)`;
+    b.className = `choice rarity-${opt.rarity}`;
+    b.style.borderColor = st.color;
+    b.dataset.rarity = opt.rarity;
+    const name = document.createElement('b');
+    name.style.color = st.color;
+    name.textContent = `${i + 1}. ${st.label} blessing`;
+    const eff = document.createElement('span');
+    eff.textContent = ok ? `${opt.effect!.stat} +${opt.effect!.amount}` : 'Effect pending evidence (no effect yet)';
+    b.append(name, eff);
     b.addEventListener('click', () => pickBlessing(i));
     blessingChoicesEl.appendChild(b);
   });
@@ -410,7 +414,7 @@ controls.onKey((code) => {
   else if (paused && (code === 'Escape' || code === 'KeyP')) setPaused(false);
   else if (paused && code === 'KeyQ') quit();
   else if (world.phase === 'levelup' && /^(Digit|Numpad)[123]$/.test(code)) pick(Number(code.slice(-1)) - 1);
-  else if (world.phase === 'blessing' && /^(Digit|Numpad)[1234]$/.test(code)) pickBlessing(Number(code.slice(-1)) - 1);
+  else if (world.phase === 'blessing' && /^(Digit|Numpad)[123]$/.test(code)) pickBlessing(Number(code.slice(-1)) - 1);
   else if (code === 'Tab' && started && !isRunOver(world) && (paused || world.phase === 'playing')) setPaused(!paused);
   else if (isRunOver(world) && (code === 'KeyR' || code === 'Enter')) restart();
   else if (world.phase === 'playing' && (code === 'Escape' || code === 'KeyP')) setPaused(true);

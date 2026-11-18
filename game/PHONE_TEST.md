@@ -53,7 +53,7 @@ Result status: **NOT YET RUN** — only the owner can fill in results below.
 | 20 | Zone 3's purple portal (**Enter portal to Shrine**) leads to the Shrine; the Legendary appears; beating it shows **VICTORY! Run complete — exit the stage through the portal**, a gold exit portal opens, and **Exit stage** shows the **Victory!** screen | |
 | 21 | ⏸ → **Quit run** shows **Run abandoned**; switching apps and back leaves the game paused | |
 | 22 | The round **minimap** (top right) shows you and the altars; tapping it pauses and shows the **full map** | |
-| 23 | Standing in the blue **Unown** circle fills it (percentage shown); when full, 4 tier cards appear ("Tier 1–4 stat buff — pending evidence"); tapping one resumes (no stat change yet) | |
+| 23 | Standing in the blue **Unown** circle fills it (percentage shown); when full, 3 blessing cards appear with coloured rarities (Common grey / Rare blue / Epic purple / Legendary gold, "effect pending evidence"); tapping one resumes (no stat change yet) | |
 | 24 | On the orange **Challenge** altar, **Start Challenge** spawns a group of the same enemy; the counter goes up as you defeat them and the altar turns grey when won; no item is given | |
 
 Tip: a full normal run can take up to 30+ minutes. To check the zone/altar/portal/Shrine flow quickly, open `http://<that-address>:4173/?preset=short&debug=1` (30-second zone clocks, small boss HP, labelled SHORT TEST PRESET), then also play as far as you can on the normal rules.

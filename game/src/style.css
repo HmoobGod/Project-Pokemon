@@ -67,3 +67,5 @@ button.link { background: none; border: none; color: #6ff3ff; text-decoration: u
 
 .portal-btn.exit { background: #c48a00; box-shadow: 0 0 24px #ffd34d; }
 @media (min-width: 700px) { #blessing-choices .choice { min-width: 0; } }
+.choice[class*="rarity-"] { border-width: 3px; }
+.choice[class*="rarity-"] span { display: block; }
