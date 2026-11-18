@@ -69,14 +69,19 @@ test('fresh-profile metadata has Android runtime cases for persistence and fail-
   }
   assert.match(emulatorWorkflow,/Duplicate AndroidJUnit testcase/);
   assert.match(emulatorWorkflow,/Expected exactly 5 Android tests/);
-  assert.match(emulatorWorkflow,/python3 android-demo\\/ci\\/verify_profile_restart\\.py/);
+  assert.ok(emulatorWorkflow.includes('python3 android-demo/ci/verify_profile_restart.py'));
   const restart=await read('android-demo/ci/verify_profile_restart.py');
-  assert.match(restart,/org\\.projectpokemon\\.offlinesandbox/);
-  assert.match(restart,/offline_solo_profile_metadata_v1\\.xml/);
-  assert.match(restart,/am", "force-stop", PACKAGE/);
-  assert.match(restart,/assert first_raw == second_raw/);
-  assert.match(restart,/check_airplane_mode\\(\\)/);
-  assert.doesNotMatch(restart,/pm clear|deleteSharedPreferences|pokebonk\\.standard|android\\.permission\\.INTERNET/i);
+  for(const expected of [
+    'org.projectpokemon.offlinesandbox',
+    'offline_solo_profile_metadata_v1.xml',
+    '"force-stop", PACKAGE',
+    'assert first_raw == second_raw',
+    'check_airplane_mode()'
+  ]) assert.ok(restart.includes(expected), 'Missing restart safety gate: '+expected);
+  for(const forbidden of [
+    'pm clear','deleteSharedPreferences','pokebonk.standard',
+    'android.permission.INTERNET'
+  ]) assert.ok(!restart.includes(forbidden), 'Unsafe restart script content: '+forbidden);
 
   assert.match(emulatorWorkflow,/root\.attrib\.get\('skipped', -1\)/);
 
