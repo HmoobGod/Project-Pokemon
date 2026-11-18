@@ -60,6 +60,7 @@ jobs:
             adb shell settings get global wifi_on
             echo 'Install and exercise disposable app + instrumentation APK on real emulator'
             gradle --no-daemon -p android-demo :app:connectedDebugAndroidTest
+            python3 android-demo/ci/verify_profile_restart.py
             test "$(adb shell settings get global airplane_mode_on | tr -d '\r')" = 1
             echo 'Connected instrumentation finished with airplane mode setting still enabled; validate JUnit XML in next proper bash step'
       - name: Verify exact AndroidJUnit XML from real emulator
