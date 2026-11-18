@@ -46,6 +46,9 @@ test('fresh-profile metadata has Android runtime cases for persistence and fail-
   ]);
   assert.match(src,/freshIdentityIsStableAndContainsNoProgression/);
   assert.match(src,/corruptOrForgedProfilesFailClosedWithoutStorageWrites/);
+  assert.match(src,/persistedCorruptionNeverRewritesRawBytesInDisposableFixture/);
+  assert.match(src,/offline_solo_test_fixture_/);
+  assert.match(src,/deleteSharedPreferences\(fixtureName\)/);
   assert.match(src,/assertEquals\("Reopening MUST NOT overwrite prior raw profile bytes"/);
   assert.match(workflow,/assembleDebugAndroidTest/);
   assert.match(manifest,/android:allowBackup="false"/);
