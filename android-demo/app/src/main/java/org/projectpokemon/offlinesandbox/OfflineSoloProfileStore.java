@@ -52,6 +52,16 @@ final class OfflineSoloProfileStore {
     static synchronized Profile openOrCreate(SharedPreferences preferences) {
         if (preferences == null) throw new IllegalArgumentException("Preferences required");
 
+        // This namespace currently has exactly one authorized key. If a
+        // future/older app or a damaged store leaves other raw slots, do not
+        // mistake the missing identity key for a genuinely empty first install.
+        // Never clear, rename, or overwrite data of unknown provenance.
+        final java.util.Map<String, ?> existing = preferences.getAll();
+        if (!existing.isEmpty()
+                && (existing.size() != 1 || !existing.containsKey(RECORD_KEY))) {
+            throw new IllegalStateException("Unknown offline profile slots; no reset");
+        }
+
         // A present but invalid record MUST NOT be replaced by a fresh profile.
         if (preferences.contains(RECORD_KEY)) {
             final String raw;
