@@ -28,6 +28,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
+          cache: npm
+          cache-dependency-path: game/package-lock.json
       - name: No private models / third-party art tracked under game/
         run: |
           set -euo pipefail
@@ -35,22 +37,8 @@ jobs:
             echo 'Tracked model/image/audio or private asset file found under game/' >&2
             exit 1
           fi
-      - name: Install dependencies (bootstrap lockfile if missing)
-        run: |
-          set -euo pipefail
-          if [[ -f package-lock.json ]]; then
-            npm ci --no-audit --no-fund
-          else
-            echo '::warning::game/package-lock.json missing; resolving with npm install (NOT reproducible) and uploading the lockfile'
-            npm install --no-audit --no-fund
-            echo "LOCKFILE_SHA256=$(sha256sum package-lock.json | cut -d' ' -f1)"
-            echo "LOCKFILE_B64_BEGIN"; base64 -w0 package-lock.json; echo; echo "LOCKFILE_B64_END"
-          fi
-      - name: Upload resolved lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: game-package-lock
-          path: game/package-lock.json
+      - name: Install exact locked dependencies
+        run: npm ci --no-audit --no-fund
       - name: Tool versions
         run: node -v && npx tsc -v && npx vite --version
       - name: Unit tests
@@ -77,10 +65,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22.16.0'
-      - name: Install dependencies
-        run: |
-          set -euo pipefail
-          if [[ -f package-lock.json ]]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+          cache: npm
+          cache-dependency-path: game/package-lock.json
+      - name: Install exact locked dependencies
+        run: npm ci --no-audit --no-fund
       - name: Install Chromium + system deps
         run: npx playwright install --with-deps chromium
       - name: Vite production build

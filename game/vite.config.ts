@@ -2,5 +2,5 @@
 export default {
   base: './',
   // modulePreload polyfill disabled: it is unneeded for one entry chunk and would add a fetch() call.
-  build: { outDir: 'dist', assetsInlineLimit: 0, sourcemap: false, target: 'es2020', modulePreload: { polyfill: false } },
+  build: { outDir: 'dist', assetsInlineLimit: 0, sourcemap: false, target: 'es2020', modulePreload: { polyfill: false }, chunkSizeWarningLimit: 700 },
 };
