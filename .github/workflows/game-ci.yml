@@ -49,6 +49,8 @@ jobs:
         run: npm run build
       - name: Offline-reference check
         run: npm run check:offline
+      - name: Build contains no private sprites (CI is asset-independent)
+        run: test ! -e dist/private-sprites && test ! -e public/private-sprites
       - name: Upload Vite build
         uses: actions/upload-artifact@v4
         with:
@@ -73,8 +75,14 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Vite production build
         run: npm run build
-      - name: Smoke test (keyboard, touch, level-up, defeat, restart, phone portrait, no network)
-        run: npm run smoke
+      - name: Smoke test via `vite preview` (the server the owner uses for the phone test)
+        run: |
+          set -euo pipefail
+          npx vite preview --host 127.0.0.1 --port 4173 --strictPort > vite-preview.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:4173/ > /dev/null && break; sleep 1; done
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4173/private-sprites/sprites.js)
+          echo "missing sprites.js -> HTTP $code"; test "$code" = 404
+          SMOKE_ORIGIN=http://127.0.0.1:4173 npm run smoke
       - name: Upload smoke evidence
         if: always()
         uses: actions/upload-artifact@v4

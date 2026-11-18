@@ -6,6 +6,8 @@
   "description": "Original Three.js + TypeScript arena-survival vertical slice (placeholder art, no third-party game assets, no rewards).",
   "scripts": {
     "dev": "vite",
+    "phone": "vite --host 0.0.0.0 --port 5173 --strictPort",
+    "phone:preview": "vite build && vite preview --host 0.0.0.0 --port 4173 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
     "build:esbuild": "node tools/build-esbuild.mjs",

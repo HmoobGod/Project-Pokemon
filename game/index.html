@@ -15,6 +15,7 @@
           <div class="bar xp"><div id="xp-fill" class="fill"></div><span id="xp-text"></span></div>
         </div>
         <div class="stats"><span id="time">0:00</span> · <span id="kills">0</span> KOs</div>
+        <button id="fullscreen" class="small" type="button" aria-label="Full screen">⛶</button>
         <button id="mute" class="small" type="button" aria-label="Toggle sound">🔊</button>
       </div>
       <div id="stick" class="stick"><div id="knob" class="knob"></div></div>
@@ -25,7 +26,9 @@
           <p>Survive the waves. Your hero attacks the nearest enemy automatically.</p>
           <p class="hint">Move: WASD / arrow keys, or drag anywhere on a touch screen.<br />Level-up: tap a card or press 1 / 2 / 3. Restart: R.</p>
           <button id="start-btn" type="button">Start</button>
-          <p class="fine">Original placeholder prototype. No PokéBonk or Pokémon assets.</p>
+          <p><button id="credits-btn" class="link" type="button">Credits</button></p>
+          <p id="sprite-status" class="fine">Sprites: checking…</p>
+          <p class="fine">Original placeholder prototype. No PokéBonk or Pokémon assets are included.</p>
         </div>
       </div>
 
@@ -36,11 +39,31 @@
         </div>
       </div>
 
+      <div id="credits" class="overlay hidden">
+        <div class="panel credits-panel">
+          <h2>Credits</h2>
+          <div id="credits-list"></div>
+          <p id="credits-sprite-status" class="fine"></p>
+          <ul id="credits-problems" class="fine problems"></ul>
+          <button id="credits-close" type="button">Back</button>
+        </div>
+      </div>
+
+      <div id="fatal" class="overlay hidden">
+        <div class="panel">
+          <h2>Can’t start the game</h2>
+          <p id="fatal-msg"></p>
+        </div>
+      </div>
+
+      <div id="debug" class="debug hidden"></div>
+
       <div id="defeat" class="overlay hidden">
         <div class="panel">
           <h2>Defeated</h2>
           <p id="defeat-summary"></p>
           <button id="restart-btn" type="button">Restart</button>
+          <p><button id="credits-btn-2" class="link" type="button">Credits</button></p>
         </div>
       </div>
     </div>

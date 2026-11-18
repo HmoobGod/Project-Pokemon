@@ -2,14 +2,26 @@
 import * as THREE from 'three';
 import { ARENA_HALF_SIZE, OBSTACLES } from '../sim/config.ts';
 import type { Enemy, World } from '../sim/world.ts';
+import type { SpriteRole } from '../sprites/manifest.ts';
+import type { LoadedSprite } from '../sprites/loader.ts';
+import { directionRow, frameIndex, frameUv } from '../sprites/spriteMath.ts';
 
 const CAMERA_OFFSET = new THREE.Vector3(0, 15, 11);
 
 interface EnemyView {
   group: THREE.Group;
-  body: THREE.Mesh;
-  material: THREE.MeshStandardMaterial;
-  baseColor: THREE.Color;
+  /** placeholder mesh (null when a billboard sprite is used) */
+  body: THREE.Mesh | null;
+  material: THREE.MeshStandardMaterial | null;
+  sprite: SpriteView | null;
+}
+
+/** A camera-facing billboard showing one animated frame of a loaded sprite sheet. */
+interface SpriteView {
+  sprite: THREE.Sprite;
+  material: THREE.SpriteMaterial;
+  texture: THREE.Texture;
+  loaded: LoadedSprite;
 }
 
 interface PulseRing {
@@ -24,7 +36,11 @@ export class GameView {
   private readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
   private readonly player: THREE.Group;
+  private readonly playerPlaceholder: THREE.Group;
   private readonly playerBodyMat: THREE.MeshStandardMaterial;
+  private playerSprite: SpriteView | null = null;
+  private readonly baseTextures = new Map<SpriteRole, THREE.Texture>();
+  private loadedSprites = new Map<SpriteRole, LoadedSprite>();
   private readonly enemies = new Map<number, EnemyView>();
   private readonly projectiles = new Map<number, THREE.Mesh>();
   private readonly orbs = new Map<number, THREE.Mesh>();
@@ -56,8 +72,9 @@ export class GameView {
     this.scene.add(sun);
 
     this.buildArena();
-    const { group, bodyMat } = this.buildPlayer();
+    const { group, placeholder, bodyMat } = this.buildPlayer();
     this.player = group;
+    this.playerPlaceholder = placeholder;
     this.playerBodyMat = bodyMat;
     this.scene.add(this.player);
     this.resize();
@@ -94,9 +111,11 @@ export class GameView {
     }
   }
 
-  private buildPlayer(): { group: THREE.Group; bodyMat: THREE.MeshStandardMaterial } {
+  private buildPlayer(): { group: THREE.Group; placeholder: THREE.Group; bodyMat: THREE.MeshStandardMaterial } {
     // Original placeholder hero: rounded orange body, two ear cones and a facing nose.
+    const outer = new THREE.Group();
     const group = new THREE.Group();
+    outer.add(group);
     const bodyMat = new THREE.MeshStandardMaterial({ color: 0xff8a3d, emissive: 0x000000 });
     const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 0.5, 6, 12), bodyMat);
     body.position.y = 0.75;
@@ -110,8 +129,82 @@ export class GameView {
     const nose = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), new THREE.MeshStandardMaterial({ color: 0xffffff }));
     nose.position.set(0, 0.95, -0.48);
     group.add(nose);
-    group.add(this.makeShadow(0.6));
-    return { group, bodyMat };
+    outer.add(this.makeShadow(0.6));
+    return { group: outer, placeholder: group, bodyMat };
+  }
+
+  /**
+   * Use locally loaded sprite sheets. Roles without a valid sprite keep their placeholder shapes.
+   * Safe to call at any time (e.g. after the run has started).
+   */
+  setSprites(sprites: ReadonlyMap<SpriteRole, LoadedSprite>): void {
+    for (const t of this.baseTextures.values()) t.dispose();
+    this.baseTextures.clear();
+    this.loadedSprites = new Map();
+    for (const [role, ls] of sprites) {
+      try {
+        const tex = new THREE.Texture(ls.image as HTMLImageElement);
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        tex.generateMipmaps = false;
+        tex.needsUpdate = true;
+        this.baseTextures.set(role, tex);
+        this.loadedSprites.set(role, ls);
+      } catch {
+        // leave this role on placeholders
+      }
+    }
+    if (this.playerSprite) {
+      this.player.remove(this.playerSprite.sprite);
+      this.disposeSprite(this.playerSprite);
+      this.playerSprite = null;
+    }
+    this.playerSprite = this.makeSpriteView('player');
+    if (this.playerSprite) this.player.add(this.playerSprite.sprite);
+    this.playerPlaceholder.visible = !this.playerSprite;
+    // enemies are rebuilt lazily with the new look
+    for (const [id, v] of this.enemies) this.disposeEnemyView(v, id);
+  }
+
+  activeSpriteRoles(): SpriteRole[] {
+    return [...this.loadedSprites.keys()];
+  }
+
+  private makeSpriteView(role: SpriteRole): SpriteView | null {
+    const base = this.baseTextures.get(role);
+    const loaded = this.loadedSprites.get(role);
+    if (!base || !loaded) return null;
+    const texture = base.clone();
+    texture.needsUpdate = true;
+    const material = new THREE.SpriteMaterial({ map: texture, transparent: true, alphaTest: 0.1, depthWrite: false });
+    const sprite = new THREE.Sprite(material);
+    sprite.center.set(0.5, 0);
+    const h = loaded.spec.height;
+    sprite.scale.set((h * loaded.spec.frameWidth) / loaded.spec.frameHeight, h, 1);
+    sprite.position.y = 0.02;
+    const view = { sprite, material, texture, loaded };
+    this.updateSpriteFrame(view, 0, 0, 1);
+    return view;
+  }
+
+  private updateSpriteFrame(v: SpriteView, time: number, fx: number, fz: number): void {
+    const s = v.loaded.spec;
+    const uv = frameUv(s.frameWidth, s.frameHeight, v.loaded.width, v.loaded.height, frameIndex(time, s.fps, s.frames), directionRow(fx, fz, s.directions));
+    v.texture.repeat.set(uv.repeatX, uv.repeatY);
+    v.texture.offset.set(uv.offsetX, uv.offsetY);
+  }
+
+  private disposeSprite(v: SpriteView): void {
+    v.material.dispose();
+    v.texture.dispose();
+  }
+
+  private disposeEnemyView(v: EnemyView, id: number): void {
+    this.scene.remove(v.group);
+    v.material?.dispose();
+    if (v.sprite) this.disposeSprite(v.sprite);
+    this.enemies.delete(id);
   }
 
   private makeShadow(r: number): THREE.Mesh {
@@ -123,15 +216,19 @@ export class GameView {
   }
 
   private createEnemyView(e: Enemy): EnemyView {
-    const baseColor = new THREE.Color(e.kind === 'brute' ? 0x8b1e3f : 0x7b4fd6);
-    const material = new THREE.MeshStandardMaterial({ color: baseColor.clone(), flatShading: true });
-    const body = new THREE.Mesh(e.kind === 'brute' ? this.geo.brute : this.geo.chaser, material);
-    body.position.y = e.radius;
     const group = new THREE.Group();
-    group.add(body);
     group.add(this.makeShadow(e.radius * 1.05));
     this.scene.add(group);
-    return { group, body, material, baseColor };
+    const sprite = this.makeSpriteView(e.kind);
+    if (sprite) {
+      group.add(sprite.sprite);
+      return { group, body: null, material: null, sprite };
+    }
+    const material = new THREE.MeshStandardMaterial({ color: e.kind === 'brute' ? 0x8b1e3f : 0x7b4fd6, flatShading: true });
+    const body = new THREE.Mesh(e.kind === 'brute' ? this.geo.brute : this.geo.chaser, material);
+    body.position.y = e.radius;
+    group.add(body);
+    return { group, body, material, sprite: null };
   }
 
   spawnPulseRing(radius: number): void {
@@ -156,12 +253,15 @@ export class GameView {
   render(world: World, frameDt: number, snapCamera = false): void {
     const p = world.player;
     this.player.position.set(p.pos.x, 0, p.pos.z);
-    this.player.rotation.y = Math.atan2(-p.facing.x, -p.facing.z);
+    this.playerPlaceholder.rotation.y = Math.atan2(-p.facing.x, -p.facing.z);
     const blink = p.invulnTimer > 0 && Math.floor(p.invulnTimer * 20) % 2 === 0;
     this.player.visible = world.phase === 'defeated' ? true : !blink;
     this.playerBodyMat.emissive.setHex(p.invulnTimer > 0 ? 0x661100 : 0x000000);
-    if (world.phase === 'defeated') this.player.rotation.z = Math.PI / 2.5;
-    else this.player.rotation.z = 0;
+    this.playerPlaceholder.rotation.z = world.phase === 'defeated' ? Math.PI / 2.5 : 0;
+    if (this.playerSprite) {
+      this.updateSpriteFrame(this.playerSprite, world.time, p.facing.x, p.facing.z);
+      this.playerSprite.material.color.setHex(world.phase === 'defeated' ? 0x777777 : p.invulnTimer > 0 ? 0xff8888 : 0xffffff);
+    }
 
     // enemies
     const live = new Set<number>();
@@ -173,22 +273,22 @@ export class GameView {
         this.enemies.set(e.id, v);
       }
       v.group.position.set(e.pos.x, 0, e.pos.z);
-      if (e.ai === 'windup') {
-        const s = 1 + 0.25 * Math.sin(world.time * 40);
-        v.body.scale.setScalar(s);
-        v.material.emissive.setHex(0xaa2200);
-      } else {
-        v.body.scale.setScalar(1);
-        v.material.emissive.setHex(e.hitFlash > 0 ? 0xffffff : 0x000000);
+      const pulse = e.ai === 'windup' ? 1 + 0.25 * Math.sin(world.time * 40) : 1;
+      if (v.body && v.material) {
+        v.body.scale.setScalar(pulse);
+        v.material.emissive.setHex(e.ai === 'windup' ? 0xaa2200 : e.hitFlash > 0 ? 0xffffff : 0x000000);
+        v.body.rotation.y = world.time * (e.kind === 'brute' ? 0.8 : 2);
+      } else if (v.sprite) {
+        this.updateSpriteFrame(v.sprite, world.time + e.id * 0.13, p.pos.x - e.pos.x, p.pos.z - e.pos.z);
+        const sp = v.sprite.loaded.spec;
+        v.sprite.sprite.scale.set((sp.height * sp.frameWidth * pulse) / sp.frameHeight, sp.height * pulse, 1);
+        if (e.ai === 'windup') v.sprite.material.color.setRGB(1, 0.35, 0.35);
+        else if (e.hitFlash > 0) v.sprite.material.color.setRGB(3, 3, 3);
+        else v.sprite.material.color.setRGB(1, 1, 1);
       }
-      v.body.rotation.y = world.time * (e.kind === 'brute' ? 0.8 : 2);
     }
     for (const [id, v] of this.enemies) {
-      if (!live.has(id)) {
-        this.scene.remove(v.group);
-        v.material.dispose();
-        this.enemies.delete(id);
-      }
+      if (!live.has(id)) this.disposeEnemyView(v, id);
     }
 
     this.syncSimple(this.projectiles, world.projectiles, this.geo.projectile, this.mat.projectile, 0.7);
@@ -245,11 +345,7 @@ export class GameView {
 
   /** Remove every dynamic object (used on restart). */
   clearDynamic(): void {
-    for (const v of this.enemies.values()) {
-      this.scene.remove(v.group);
-      v.material.dispose();
-    }
-    this.enemies.clear();
+    for (const [id, v] of this.enemies) this.disposeEnemyView(v, id);
     for (const m of this.projectiles.values()) this.scene.remove(m);
     this.projectiles.clear();
     for (const m of this.orbs.values()) this.scene.remove(m);

@@ -13,7 +13,10 @@ Status: **prototype vertical slice.** Browser-tested only (headless Chrome). **N
 - Kills drop XP orbs; walking near them (magnet radius) collects XP. **XP only comes from kills.**
 - Level-up pauses the run and offers 3 distinct upgrades (damage, fire rate, speed, max HP, multishot, magnet, new **Shock Pulse** AoE ability). Choose by tap/click or keys 1/2/3. Multiple level-ups queue.
 - HP 0 → defeat screen with run summary → Restart (button, R or Enter) starts a fresh run.
-- Synthesized sound effects (Web Audio, no audio files), mute button / M.
+- Synthesized sound effects (Web Audio, no audio files), mute button / M; full-screen button.
+- **Optional private sprites:** a generic loader shows locally supplied 2D sprite sheets as camera-facing billboards (8-direction or single-row, animated). Absent, invalid, uncredited or broken sprites fall back to the placeholder shapes. See [PHONE_TEST.md](PHONE_TEST.md#optional-your-own-private-sprites).
+- **Credits screen** (start/defeat screens): engine + project credits, plus credits for exactly the sprites that loaded, and any loader problems.
+- `?debug=1` shows FPS and screen size (for phone test reports). If WebGL is unavailable a readable error is shown instead of a blank page.
 
 ## Deliberately NOT in this slice
 
@@ -38,16 +41,17 @@ npm run build:esbuild  # alternative build -> dist/ as a classic script; dist/in
 ### Preview on a phone (same Wi-Fi)
 
 ```bash
-npm run dev -- --host 0.0.0.0
+npm run phone:preview      # production build on http://<LAN-IP>:4173  (or: npm run phone -> dev server on :5173)
+# equivalent to: npm run dev -- --host 0.0.0.0
 ```
 
-Find your computer's LAN IP (Windows: `ipconfig` → IPv4 Address; macOS: `ipconfig getifaddr en0`; Linux: `hostname -I`), then open `http://<that-IP>:5173` in the phone's browser. Allow Node through the computer's firewall if the page doesn't load. Stop the server with Ctrl+C when done, since `0.0.0.0` exposes it to your local network.
+Open `http://<your computer's LAN IP>:4173/?debug=1` in Chrome on the phone. Full steps, pass/fail checklist and report template: **[PHONE_TEST.md](PHONE_TEST.md)**. Stop the server with Ctrl+C; `0.0.0.0` exposes it to your local network, so never forward or tunnel it to the internet.
 
 This only shows the game in the phone's **browser**. It does not prove native Android, WebView packaging, APK install or offline-on-device behaviour — none of those exist yet.
 
 ## CI
 
-`.github/workflows/game-ci.yml` runs on every push/PR touching `game/`: `npm ci`, unit tests, strict typecheck, Vite production build, offline-reference check, a no-private-assets check, and a headless-Chromium smoke test against the Vite build (screenshots + log uploaded as an artifact).
+`.github/workflows/game-ci.yml` runs on every push/PR touching `game/`: `npm ci`, unit tests, strict typecheck, Vite production build, offline-reference check, a no-private-assets check, and a check that the build contains no private sprites, and a headless-Chromium smoke test against the Vite build (screenshots + log uploaded as an artifact). The smoke test also generates an **original** throw-away sprite sheet at test time to prove sprite loading, credits and invalid-manifest fallback; no third-party art is involved and nothing is committed.
 
 ## Layout
 
@@ -57,6 +61,7 @@ game/
   src/sim/              pure deterministic simulation (no DOM/three) — unit tested
   src/input/            keyboard + touch joystick (vectors.ts is pure and tested)
   src/render/scene.ts   Three.js view, original primitive meshes
+  src/sprites/          optional private sprite manifest validation, loader, credits, sheet math
   src/audio.ts          generated sound effects
   src/main.ts           fixed 60 Hz loop, HUD, level-up/defeat UI
   test/                 node --test suites
@@ -71,4 +76,4 @@ Every runtime resource is in `dist/` (JS, CSS, HTML); no fonts, CDNs or network 
 
 All code, shapes, colours and sounds committed here are original placeholders. No PokéBonk code/assets, no Pokémon art, names or audio.
 
-Model/sprite files (`*.glb`, `*.gltf`, `*.fbx`, `*.obj`, `*.vrm`, images, and the `private-models/`, `private-sprites/`, `private-assets/` folders) are git-ignored, and CI fails if any are tracked under `game/`. Any community art the owner chooses to use stays on the owner's machine with its original credits and licence.
+Private sprites live in `game/public/private-sprites/` (template: `private-sprites.example.js`). Model/sprite files (`*.glb`, `*.gltf`, `*.fbx`, `*.obj`, `*.vrm`, images, and the `private-models/`, `private-sprites/`, `private-assets/` folders) are git-ignored, and CI fails if any are tracked under `game/`. Any community art the owner chooses to use stays on the owner's machine with its original credits and licence.

@@ -3,24 +3,31 @@
 // Usage: node tools/smoke.mjs dist [outDir]
 import { chromium } from 'playwright';
 import { createServer } from 'node:http';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { deflateSync } from 'node:zlib';
 import { resolve, join, normalize, extname, sep } from 'node:path';
 
 const dist = resolve(process.argv[2] ?? 'dist');
 const out = resolve(process.argv[3] ?? 'smoke-output');
 mkdirSync(out, { recursive: true });
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml' };
-const server = createServer((req, res) => {
-  const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-  const file = normalize(join(dist, path === '/' ? 'index.html' : path));
-  if (!file.startsWith(dist + sep) || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
-  res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
-  res.end(readFileSync(file));
-});
-await new Promise((r) => server.listen(0, '127.0.0.1', r));
-const origin = `http://127.0.0.1:${server.address().port}`;
+async function serve(root) {
+  const srv = createServer((req, res) => {
+    const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    const file = normalize(join(root, path === '/' ? 'index.html' : path));
+    if (!file.startsWith(root + sep) || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
+    res.end(readFileSync(file));
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  return { srv, origin: `http://127.0.0.1:${srv.address().port}` };
+}
+// SMOKE_ORIGIN lets CI drive an already-running server (e.g. `vite preview`) for the main run.
+const { srv: server, origin } = process.env.SMOKE_ORIGIN ? { srv: { close() {} }, origin: process.env.SMOKE_ORIGIN.replace(/\/$/, '') } : await serve(dist);
 const url = `${origin}/index.html?seed=12345`;
-const isLocal = (u) => u.startsWith(origin + '/') || u.startsWith('data:') || u.startsWith('blob:');
+const localOrigins = [origin];
+const isLocal = (u) => localOrigins.some((o) => u.startsWith(o + '/')) || u.startsWith('data:') || u.startsWith('blob:');
 const log = [];
 const note = (m) => { log.push(m); console.log(m); };
 const fail = (m) => { throw new Error(m); };
@@ -34,7 +41,8 @@ const page = await context.newPage();
 const errors = [];
 const blocked = [];
 page.on('pageerror', (e) => errors.push(String(e)));
-page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+// A 404 for the optional private sprite folder is expected when no sprites are installed.
+page.on('console', (m) => { if (m.type() === 'error' && !(m.location().url || '').includes('/private-sprites/')) errors.push(m.text()); });
 await context.route('**/*', (route) => {
   const u = route.request().url();
   if (isLocal(u)) return route.continue();
@@ -57,6 +65,7 @@ try {
   await page.goto(url);
   await page.waitForFunction(() => !!window.__arenaSlice);
   const gl = await page.evaluate(() => { const c = document.createElement('canvas'); const g = c.getContext('webgl2') || c.getContext('webgl'); return g ? g.getParameter(g.VERSION) : null; });
+  note(`serving main run from ${process.env.SMOKE_ORIGIN ? 'external server ' + origin : 'built-in loopback server'}`);
   note(`WebGL: ${gl}`);
   if (!gl) fail('no WebGL context available');
   const renderer = await page.evaluate(() => { const g = document.createElement('canvas').getContext('webgl'); const ext = g && g.getExtension('WEBGL_debug_renderer_info'); return ext ? g.getParameter(ext.UNMASKED_RENDERER_WEBGL) : 'unknown'; });
@@ -66,6 +75,14 @@ try {
   note(`canvas pixels: ${JSON.stringify(pixels)}`);
   if (pixels.litPixels < pixels.total * 0.5 || pixels.distinctColours < 4) fail('game canvas did not render a scene');
   await page.screenshot({ path: join(out, '01-start.png') });
+  // No private sprites in this build: placeholders + base credits only.
+  let sp = await waitFor((x) => x.sprites !== null, 5000, 'sprite check');
+  if (sp.sprites.status !== 'none' || sp.sprites.rendered.length !== 0) fail(`expected no sprites, got ${JSON.stringify(sp.sprites)}`);
+  await page.click('#credits-btn');
+  const baseCredits = await page.textContent('#credits-list');
+  if (!baseCredits.includes('three.js') || baseCredits.includes('Source:')) fail(`unexpected base credits: ${baseCredits}`);
+  note(`no-sprite build: status=${sp.sprites.status}, placeholders used, credits = base only`);
+  await page.click('#credits-close');
   await page.click('#start-btn');
   let s = await waitFor((x) => x.started, 2000, 'start');
   note(`started phase=${s.phase} hp=${s.player.hp}`);
@@ -158,6 +175,69 @@ try {
   note(`phone 412x915 touch: tap Start OK, joystick moved z ${pz0.toFixed(2)} -> ${pz1.toFixed(2)}`);
   await phone.close();
 
+  // ---- Optional sprite loader, using an ORIGINAL sheet generated right here (never committed) ----
+  const fx = mkdtempSync(join(tmpdir(), 'arena-fixture-'));
+  try {
+    cpSync(dist, fx, { recursive: true });
+    mkdirSync(join(fx, 'private-sprites'), { recursive: true });
+    writeFileSync(join(fx, 'private-sprites', 'sheet.png'), makeFixtureSheet(32, 40, 4, 8));
+    const fixtureCredit = { title: 'Smoke fixture sheet', authors: ['Smoke Test Generator'], source: 'generated by tools/smoke.mjs at test time', license: 'CC0-1.0' };
+    const writeManifest = (sprites) => writeFileSync(join(fx, 'private-sprites', 'sprites.js'), `window.ARENA_PRIVATE_SPRITES = ${JSON.stringify({ version: 1, sprites })};\n`);
+    const ent = (o = {}) => ({ image: 'sheet.png', frameWidth: 32, frameHeight: 40, frames: 4, directions: 8, fps: 8, height: 1.8, credit: fixtureCredit, ...o });
+    writeManifest({ player: ent(), chaser: ent(), brute: ent({ image: 'missing.png', credit: { ...fixtureCredit, authors: ['Must Not Be Credited'] } }) });
+    const { srv: fsrv, origin: forigin } = await serve(fx);
+    localOrigins.push(forigin);
+    try {
+      const fctx = await browser.newContext({ viewport: { width: 960, height: 600 } });
+      await fctx.route('**/*', (route) => { const u = route.request().url(); if (isLocal(u)) return route.continue(); blocked.push(u); return route.abort(); });
+      const fp = await fctx.newPage();
+      fp.on('pageerror', (e) => errors.push(String(e)));
+      const fsnap = () => fp.evaluate(() => window.__arenaSlice.snapshot());
+      await fp.goto(`${forigin}/index.html?seed=777`);
+      await fp.waitForFunction(() => window.__arenaSlice && window.__arenaSlice.snapshot().sprites !== null, null, { timeout: 10000 });
+      let fs = await fsnap();
+      if (fs.sprites.status !== 'partial' || [...fs.sprites.rendered].sort().join() !== 'chaser,player') fail(`fixture sprites not applied: ${JSON.stringify(fs.sprites)}`);
+      note(`fixture sprites: status=${fs.sprites.status} rendered=${fs.sprites.rendered.join(',')} problems=${fs.sprites.problems.length} (brute fell back)`);
+      await fp.click('#credits-btn');
+      const ctext = await fp.textContent('#credits-list');
+      if (!ctext.includes('Smoke Test Generator') || !ctext.includes('License: CC0-1.0')) fail('loaded sprite not credited');
+      if (ctext.includes('Must Not Be Credited')) fail('failed sprite was credited');
+      await fp.screenshot({ path: join(out, '08-credits-fixture.png') });
+      note('credits list exactly the loaded fixture sprites');
+      await fp.click('#credits-close');
+      await fp.click('#start-btn');
+      await fp.keyboard.down('KeyD'); await fp.waitForTimeout(700); await fp.keyboard.up('KeyD');
+      fs = await fsnap();
+      if (!(fs.player.x > 2)) fail('player did not move with sprites active');
+      await fp.waitForFunction(() => window.__arenaSlice.snapshot().enemies >= 3, null, { timeout: 20000 });
+      const magenta = await fp.evaluate(() => new Promise((done) => requestAnimationFrame(() => { const c = document.getElementById('view'); const t = document.createElement('canvas'); t.width = c.width; t.height = c.height; const x = t.getContext('2d'); x.drawImage(c, 0, 0); const d = x.getImageData(0, 0, t.width, t.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 60 && d[i + 2] > 200) n++; done(n); })));
+      await fp.screenshot({ path: join(out, '09-fixture-sprites-ingame.png') });
+      if (magenta < 50) fail(`fixture sprite pixels not visible on canvas (${magenta})`);
+      note(`fixture billboard sprites rendered in-game: ${magenta} fixture-coloured pixels; player moved to x=${fs.player.x.toFixed(2)}`);
+      await fctx.close();
+
+      // Invalid metadata: unsafe path + missing credit -> every role stays a placeholder, game still runs.
+      writeManifest({ player: ent({ image: '../escape.png' }), chaser: ent({ credit: undefined }) });
+      const bctx = await browser.newContext({ viewport: { width: 960, height: 600 } });
+      await bctx.route('**/*', (route) => { const u = route.request().url(); if (isLocal(u)) return route.continue(); blocked.push(u); return route.abort(); });
+      const bp = await bctx.newPage();
+      bp.on('pageerror', (e) => errors.push(String(e)));
+      await bp.goto(`${forigin}/index.html?seed=778`);
+      await bp.waitForFunction(() => window.__arenaSlice && window.__arenaSlice.snapshot().sprites !== null, null, { timeout: 10000 });
+      await bp.click('#start-btn');
+      await bp.keyboard.down('KeyA'); await bp.waitForTimeout(600); await bp.keyboard.up('KeyA');
+      const bs = await bp.evaluate(() => window.__arenaSlice.snapshot());
+      if (bs.sprites.status !== 'failed' || bs.sprites.rendered.length !== 0 || bs.sprites.problems.length !== 2) fail(`invalid manifest not rejected: ${JSON.stringify(bs.sprites)}`);
+      if (!(bs.player.x < -2)) fail('game not playable after invalid manifest');
+      note(`invalid manifest: status=${bs.sprites.status}, 0 sprites used, placeholders, game playable (x=${bs.player.x.toFixed(2)})`);
+      await bctx.close();
+    } finally {
+      fsrv.close();
+    }
+  } finally {
+    rmSync(fx, { recursive: true, force: true });
+  }
+
   if (errors.length) fail(`page errors: ${errors.join(' | ')}`);
   if (blocked.length) fail(`attempted network requests: ${blocked.join(', ')}`);
   note('network: 0 non-local requests attempted');
@@ -170,4 +250,25 @@ try {
   writeFileSync(join(out, 'smoke-log.txt'), log.join('\n') + '\n');
   await browser.close();
   server.close();
+}
+
+// Minimal PNG encoder for the generated ORIGINAL fixture sheet (no image libraries needed).
+function makeFixtureSheet(fw, fh, frames, rows) {
+  const w = fw * frames, h = fh * rows;
+  const raw = Buffer.alloc((w * 4 + 1) * h);
+  for (let y = 0; y < h; y++) {
+    raw[y * (w * 4 + 1)] = 0;
+    for (let x = 0; x < w; x++) {
+      const fxp = x % fw, fyp = y % fh;
+      const inside = fxp > 4 && fxp < fw - 4 && fyp > 2 && fyp < fh - 1;
+      const o = y * (w * 4 + 1) + 1 + x * 4;
+      if (inside) { raw[o] = 255; raw[o + 1] = 0; raw[o + 2] = 255; raw[o + 3] = 255; } // magenta body
+      if (inside && fyp < 10 && Math.floor(y / fh) % 2 === 0) { raw[o] = 255; raw[o + 1] = 255; raw[o + 2] = 255; } // marker
+    }
+  }
+  const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (buf) => { let c = 0xffffffff; for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6; ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]);
 }

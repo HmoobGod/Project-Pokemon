@@ -1,7 +1,7 @@
 // Fallback offline build that does not need Vite (used where Vite cannot be installed).
 // Produces dist/index.html + dist/game.js + dist/style.css with relative paths only.
 import { build } from 'esbuild';
-import { mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,4 +25,6 @@ const html = readFileSync(join(root, 'index.html'), 'utf8')
   .replace('<script type="module" src="./src/main.ts"></script>', '<script defer src="./game.js"></script>');
 if (!html.includes('src="./game.js"')) throw new Error('index.html script tag not rewritten');
 writeFileSync(join(out, 'index.html'), html);
+// Same behaviour as Vite: anything in public/ (e.g. the owner's git-ignored private-sprites/) is copied as-is.
+if (existsSync(join(root, 'public'))) cpSync(join(root, 'public'), out, { recursive: true });
 console.log('built', out);
