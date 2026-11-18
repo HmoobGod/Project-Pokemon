@@ -32,9 +32,29 @@ def adb(*args: str, check: bool = True) -> bytes:
 
 
 def pid() -> str:
-    return adb("shell", "pidof", PACKAGE, check=False).decode(
-        "ascii", errors="replace"
-    ).strip()
+    """Distinguish a missing app process from broken ADB transport.
+
+    Android toybox pidof returns exit 1 with empty output when absent.
+    An ADB transport failure may also have empty output but cannot certify stop.
+    """
+    result = subprocess.run(
+        ("adb", "shell", "pidof", PACKAGE), capture_output=True,
+        timeout=30, check=False
+    )
+    if result.returncode == 1 and not result.stdout and not result.stderr:
+        # Require a connected emulator before interpreting toybox's normal
+        # "not running" status; a disconnected device must always fail closed.
+        if adb("get-state").strip() != b"device":
+            raise AssertionError("ADB target not ready during missing-process check")
+        return ""
+    if result.returncode != 0 or result.stderr:
+        raise AssertionError(
+            f"ADB sandbox pidof query failed (exit {result.returncode})"
+        )
+    parts = result.stdout.split()
+    if not parts or any(not part.isdigit() or int(part) <= 0 for part in parts):
+        raise AssertionError("Malformed sandbox pidof response")
+    return " ".join(part.decode("ascii") for part in parts)
 
 
 def wait_for_process_present() -> str:
@@ -119,8 +139,8 @@ def main() -> None:
         "App-private raw profile XML changed after force-stop and relaunch"
     )
     check_airplane_mode()
-    print("PASS: Android app force-stop/relaunch preserved raw private profile bytes")
-    print("PASS: no account reset, profile exposure, game reward, or network grant")
+    print("PASS: sandbox metadata bytes identical across two launches after debug APK installation")
+    print("PASS: airplane-mode setting checked; no raw metadata logged")
 
 
 if __name__ == "__main__":
