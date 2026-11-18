@@ -338,7 +338,10 @@ try {
       note('credits list exactly the loaded fixture sprites');
       await fp.click('#credits-close');
       await fp.click('#start-btn');
-      await fp.keyboard.down('KeyD'); await fp.waitForTimeout(700); await fp.keyboard.up('KeyD');
+      // hold until moved (slow CI software rendering can drop below 10 fps, which slows game time)
+      await fp.keyboard.down('KeyD');
+      for (let i = 0; i < 40 && (await fsnap()).player.x <= 2; i++) await fp.waitForTimeout(100);
+      await fp.keyboard.up('KeyD');
       fs = await fsnap();
       if (!(fs.player.x > 2)) fail('player did not move with sprites active');
       await fp.waitForFunction(() => window.__arenaSlice.snapshot().enemies >= 3, null, { timeout: 20000 });
@@ -357,7 +360,9 @@ try {
       await bp.goto(`${forigin}/index.html?seed=778`);
       await bp.waitForFunction(() => window.__arenaSlice && window.__arenaSlice.snapshot().sprites !== null, null, { timeout: 10000 });
       await bp.click('#start-btn');
-      await bp.keyboard.down('KeyA'); await bp.waitForTimeout(600); await bp.keyboard.up('KeyA');
+      await bp.keyboard.down('KeyA');
+      for (let i = 0; i < 40 && (await bp.evaluate(() => window.__arenaSlice.snapshot().player.x)) >= -2; i++) await bp.waitForTimeout(100);
+      await bp.keyboard.up('KeyA');
       const bs = await bp.evaluate(() => window.__arenaSlice.snapshot());
       if (bs.sprites.status !== 'failed' || bs.sprites.rendered.length !== 0 || bs.sprites.problems.length !== 2) fail(`invalid manifest not rejected: ${JSON.stringify(bs.sprites)}`);
       if (!(bs.player.x < -2)) fail('game not playable after invalid manifest');
