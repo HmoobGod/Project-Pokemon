@@ -61,6 +61,10 @@ export interface ZoneDef {
   ground: number;
   obstacles: readonly Obstacle[];
   altar: { x: number; z: number };
+  /** Unown altar (GUIDE #11: stay in its circle until it fills up, then pick a blessing) */
+  unown: { x: number; z: number };
+  /** Challenge altar (GUIDE #11: a wave of one species) */
+  challenge: { x: number; z: number; species: 'chaser' | 'brute' };
   enemyHpMul: number;
   spawnIntervalMul: number;
   bruteUnlockTime: number;
@@ -99,6 +103,10 @@ export interface RunRules {
   finalSwarm: FinalSwarmRules;
   /** PROTOTYPE: gradual in-zone toughening of normal enemies (owner: enemies get stronger over time). */
   enemyHpGrowthPerMinute: number;
+  /** PLACEHOLDER: seconds of standing in the Unown circle to fill it (guide gives no number) */
+  unownChargeSeconds: number;
+  /** PLACEHOLDER: size of the Challenge altar's one-species wave (guide gives no number) */
+  challengeWaveSize: number;
 }
 
 const ring = (n: number, r: number, radius: number, phase = 0): Obstacle[] =>
@@ -115,6 +123,8 @@ export const ZONES: readonly ZoneDef[] = [
       { x: 12, z: 12, radius: 1.6 },
     ],
     altar: { x: 0, z: -20 },
+    unown: { x: -20, z: 4 },
+    challenge: { x: 20, z: 4, species: 'chaser' },
     enemyHpMul: 1,
     spawnIntervalMul: 1,
     bruteUnlockTime: 45,
@@ -132,6 +142,8 @@ export const ZONES: readonly ZoneDef[] = [
       { x: 20, z: -4, radius: 1.4 },
     ],
     altar: { x: 18, z: 6 },
+    unown: { x: -8, z: -22 },
+    challenge: { x: -20, z: 20, species: 'brute' },
     enemyHpMul: 1.6,
     spawnIntervalMul: 0.85,
     bruteUnlockTime: 0,
@@ -143,6 +155,8 @@ export const ZONES: readonly ZoneDef[] = [
     ground: 0xc4e4ef,
     obstacles: ring(6, 15, 1.5, 0.3),
     altar: { x: -18, z: 16 },
+    unown: { x: 22, z: -20 },
+    challenge: { x: 8, z: -8, species: 'chaser' },
     enemyHpMul: 2.4,
     spawnIntervalMul: 0.75,
     bruteUnlockTime: 0,
@@ -155,7 +169,16 @@ export const SHRINE: ShrineDef = { name: 'Shrine', ground: 0x6b5fa8, obstacles: 
 
 export const FINAL_SWARM_PLACEHOLDER: FinalSwarmRules = { hpMulBase: 2, hpMulPerMinute: 0.5, damageMulBase: 1.5, damageMulPerMinute: 0.25, spawnIntervalMul: 0.6 };
 
-export const NORMAL_RULES: RunRules = { label: 'normal', zones: ZONES, zoneSeconds: 600, shrine: SHRINE, finalSwarm: FINAL_SWARM_PLACEHOLDER, enemyHpGrowthPerMinute: 0.15 };
+export const NORMAL_RULES: RunRules = {
+  label: 'normal',
+  zones: ZONES,
+  zoneSeconds: 600,
+  shrine: SHRINE,
+  finalSwarm: FINAL_SWARM_PLACEHOLDER,
+  enemyHpGrowthPerMinute: 0.15,
+  unownChargeSeconds: 6,
+  challengeWaveSize: 15,
+};
 
 /**
  * SHORT TEST preset (URL ?preset=short): same mechanics, 30-second zone clocks and small guardian/legendary HP,
@@ -170,12 +193,30 @@ export const SHORT_RULES: RunRules = {
   // milder than normal so a scripted browser bot reliably survives; still exercises the same overtime scaling
   finalSwarm: { hpMulBase: 1.3, hpMulPerMinute: 0.5, damageMulBase: 1.0, damageMulPerMinute: 0.25, spawnIntervalMul: 1 },
   enemyHpGrowthPerMinute: 0,
+  unownChargeSeconds: 3,
+  challengeWaveSize: 6,
 };
 
 /** While a guardian/legendary is awake or a portal is up, normal spawns slow down by this factor. */
 export const BOSS_PHASE_SPAWN_MUL = 1.8;
 
 export const ALTAR = { activateRange: 2.6 };
+/** Unown circle radius (placeholder) */
+export const UNOWN = { radius: 3.2 };
+/** Challenge wave spawns on a ring around its altar (placeholder geometry) */
+export const CHALLENGE = { activateRange: 2.6, spawnRingMin: 9, spawnRingMax: 13 };
+
+/**
+ * Unown blessings: the guide (#11) says you "pick a blessing" but documents NO blessing effects.
+ * These are PROVISIONAL slots with NO gameplay effect until evidence is supplied. Do not add effects here
+ * without owner-provided source.
+ */
+export const PROVISIONAL_BLESSINGS = [
+  { id: 'unown-blessing-a', label: 'Unown Blessing A' },
+  { id: 'unown-blessing-b', label: 'Unown Blessing B' },
+  { id: 'unown-blessing-c', label: 'Unown Blessing C' },
+] as const;
+export type BlessingId = (typeof PROVISIONAL_BLESSINGS)[number]['id'];
 export const PORTAL = { activateRange: 2.2 };
 
 /** Extra distance a strike still lands at, so stepping away during the wind-up dodges it. */

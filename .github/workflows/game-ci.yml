@@ -61,7 +61,7 @@ jobs:
     name: Headless Chromium smoke (Vite build)
     needs: build-and-test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

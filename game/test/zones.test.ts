@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   activatePortal,
   availableAction,
+  chooseBlessing,
   chooseUpgrade,
   createWorld,
   hitEnemy,
@@ -402,7 +403,7 @@ test('no economy: no currency/reward fields anywhere in the world or result', ()
   const w = quiet();
   clearZone(w);
   quitRun(w);
-  assert.deepEqual(Object.keys(w.result!).sort(), ['finalSwarmsReached', 'guardiansDefeated', 'kills', 'legendaryDefeated', 'level', 'outcome', 'reached', 'time', 'zonesCleared']);
+  assert.deepEqual(Object.keys(w.result!).sort(), ['blessings', 'challengesFailed', 'challengesWon', 'finalSwarmsReached', 'guardiansDefeated', 'kills', 'legendaryDefeated', 'level', 'outcome', 'reached', 'time', 'zonesCleared']);
   const json = JSON.stringify({ ...w, rng: null, rules: null }).toLowerCase();
   for (const word of ['stardust', 'bonkoin', 'pokedollar', 'currency', 'reward', 'unlock']) assert.ok(!json.includes(word), word);
 });
@@ -471,6 +472,10 @@ const PREF = ['multishot', 'haste', 'power', 'vitality', 'pulse', 'swift', 'magn
 
 function playWithBot(w: World, maxSeconds: number): void {
   for (let i = 0; i < maxSeconds * 60; i++) {
+    if (w.phase === 'blessing') {
+      chooseBlessing(w, 0);
+      continue;
+    }
     if (w.phase === 'levelup') {
       const c = w.choices!;
       const idx = Math.max(0, PREF.map((p) => c.indexOf(p)).find((j) => j >= 0) ?? 0);

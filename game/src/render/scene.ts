@@ -1,6 +1,6 @@
 /** Three.js view of the simulation. Original primitive placeholder art only. */
 import * as THREE from 'three';
-import { ALTAR, ARENA_HALF_SIZE, BOSS_SLAM, LEGENDARY_SLAM, PORTAL, type Obstacle } from '../sim/config.ts';
+import { ALTAR, ARENA_HALF_SIZE, BOSS_SLAM, CHALLENGE, LEGENDARY_SLAM, PORTAL, UNOWN, type Obstacle } from '../sim/config.ts';
 import type { AltarState, Enemy, World } from '../sim/world.ts';
 import type { SpriteRole } from '../sprites/manifest.ts';
 import type { LoadedSprite } from '../sprites/loader.ts';
@@ -60,6 +60,13 @@ export class GameView {
   private readonly altarGemMat = new THREE.MeshStandardMaterial({ color: 0x3ddc84, emissive: 0x3ddc84, flatShading: true });
   private readonly altarRingMat = new THREE.MeshBasicMaterial({ color: 0x3ddc84, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false });
   private altar!: THREE.Group;
+  private unown!: THREE.Group;
+  private challenge!: THREE.Group;
+  private readonly unownMat = new THREE.MeshStandardMaterial({ color: 0x5aa9ff, emissive: 0x1f5fd0, emissiveIntensity: 0.6, flatShading: true });
+  private readonly unownFillMat = new THREE.MeshBasicMaterial({ color: 0x5aa9ff, transparent: true, opacity: 0.45, depthWrite: false });
+  private readonly unownRingMat = new THREE.MeshBasicMaterial({ color: 0x5aa9ff, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
+  private readonly challengeMat = new THREE.MeshStandardMaterial({ color: 0xff9b3d, emissive: 0x8a3a00, emissiveIntensity: 0.5, flatShading: true });
+  private readonly challengeRingMat = new THREE.MeshBasicMaterial({ color: 0xff9b3d, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false });
   private mapKey = '';
   private readonly geo = {
     chaser: new THREE.IcosahedronGeometry(0.55, 1),
@@ -96,6 +103,10 @@ export class GameView {
     this.buildArena();
     this.altar = this.buildAltar();
     this.scene.add(this.altar);
+    this.unown = this.buildUnown();
+    this.scene.add(this.unown);
+    this.challenge = this.buildChallenge();
+    this.scene.add(this.challenge);
     const { group, placeholder, bodyMat } = this.buildPlayer();
     this.player = group;
     this.playerPlaceholder = placeholder;
@@ -167,6 +178,10 @@ export class GameView {
     }
     this.altar.visible = !!m.altar;
     if (m.altar) this.altar.position.set(m.altar.pos.x, 0, m.altar.pos.z);
+    this.unown.visible = !!m.unown;
+    if (m.unown) this.unown.position.set(m.unown.pos.x, 0, m.unown.pos.z);
+    this.challenge.visible = !!m.challenge;
+    if (m.challenge) this.challenge.position.set(m.challenge.pos.x, 0, m.challenge.pos.z);
     this.mapKey = `${m.kind}:${m.index}`;
   }
 
@@ -185,6 +200,48 @@ export class GameView {
     zone.position.y = 0.04;
     zone.scale.setScalar(ALTAR.activateRange);
     g.add(zone);
+    return g;
+  }
+
+  private buildUnown(): THREE.Group {
+    // Original placeholder: a floating blue crystal over a circle that fills as it charges.
+    const g = new THREE.Group();
+    const crystal = new THREE.Mesh(new THREE.OctahedronGeometry(0.7, 0), this.unownMat);
+    crystal.scale.set(0.7, 1.4, 0.7);
+    crystal.position.y = 1.6;
+    crystal.name = 'crystal';
+    g.add(crystal);
+    const ring = new THREE.Mesh(this.geo.ring, this.unownRingMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.05;
+    ring.scale.setScalar(UNOWN.radius);
+    g.add(ring);
+    const fill = new THREE.Mesh(this.geo.disc, this.unownFillMat);
+    fill.rotation.x = -Math.PI / 2;
+    fill.position.y = 0.045;
+    fill.name = 'fill';
+    fill.scale.setScalar(0.001);
+    g.add(fill);
+    return g;
+  }
+
+  private buildChallenge(): THREE.Group {
+    // Original placeholder: two crossed orange blades on a plinth.
+    const g = new THREE.Group();
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.5, 1.6), new THREE.MeshStandardMaterial({ color: 0x6d5c4a, flatShading: true }));
+    plinth.position.y = 0.25;
+    g.add(plinth);
+    for (const a of [Math.PI / 4, -Math.PI / 4]) {
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.22, 2.2, 0.12), this.challengeMat);
+      blade.position.y = 1.5;
+      blade.rotation.z = a;
+      g.add(blade);
+    }
+    const ring = new THREE.Mesh(this.geo.ring, this.challengeRingMat);
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.05;
+    ring.scale.setScalar(CHALLENGE.activateRange);
+    g.add(ring);
     return g;
   }
 
@@ -373,6 +430,29 @@ export class GameView {
     const p = world.player;
     if (this.mapKey !== `${world.map.kind}:${world.map.index}`) this.buildMap(world);
     if (world.map.altar) this.altarLook(world.map.altar.state, world.time);
+    const un = world.map.unown;
+    if (un) {
+      const spent = un.state === 'spent';
+      this.unownMat.color.setHex(spent ? 0x777777 : 0x5aa9ff);
+      this.unownMat.emissive.setHex(spent ? 0x000000 : 0x1f5fd0);
+      this.unownRingMat.color.setHex(spent ? 0x777777 : 0x5aa9ff);
+      this.unownRingMat.opacity = spent ? 0.25 : 0.8;
+      const fill = this.unown.getObjectByName('fill');
+      if (fill) fill.scale.setScalar(Math.max(0.001, UNOWN.radius * un.charge));
+      const cr = this.unown.getObjectByName('crystal');
+      if (cr) {
+        cr.rotation.y = world.time * (spent ? 0 : un.state === 'charging' ? 4 : 1);
+        cr.position.y = 1.6 + (spent ? 0 : 0.15 * Math.sin(world.time * 2));
+      }
+    }
+    const ch = world.map.challenge;
+    if (ch) {
+      const col = ch.state === 'idle' ? 0xff9b3d : ch.state === 'active' ? 0xff4040 : 0x777777;
+      this.challengeMat.color.setHex(col);
+      this.challengeMat.emissive.setHex(ch.state === 'won' || ch.state === 'failed' ? 0x000000 : 0x8a3a00);
+      this.challengeRingMat.color.setHex(col);
+      this.challengeRingMat.opacity = ch.state === 'idle' ? 0.6 : 0.25;
+    }
     this.player.position.set(p.pos.x, 0, p.pos.z);
     this.playerPlaceholder.rotation.y = Math.atan2(-p.facing.x, -p.facing.z);
     const blink = p.invulnTimer > 0 && Math.floor(p.invulnTimer * 20) % 2 === 0;

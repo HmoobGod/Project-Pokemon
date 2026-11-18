@@ -24,6 +24,8 @@
         <div id="shrine-tag" class="preset proto hidden">SHRINE FINALE = PROTOTYPE (rules unconfirmed)</div>
       </div>
       <button id="action-btn" class="portal-btn hidden" type="button">Action</button>
+      <canvas id="minimap" class="minimap" width="120" height="120" aria-label="Minimap (tap for full map)"></canvas>
+      <div id="interact-status" class="interact-status hidden"></div>
       <div id="stick" class="stick"><div id="knob" class="knob"></div></div>
 
       <div id="start" class="overlay">
@@ -65,9 +67,19 @@
 
       <div id="debug" class="debug hidden"></div>
 
-      <div id="pause-menu" class="overlay hidden">
+      <div id="blessing" class="overlay hidden">
         <div class="panel">
+          <h2>Unown blessing</h2>
+          <p class="fine">Provisional: the guide documents that you pick a blessing, but not what blessings do. Your pick is recorded for this run only and has <b>no gameplay effect yet</b>.</p>
+          <div id="blessing-choices" class="choices"></div>
+        </div>
+      </div>
+
+      <div id="pause-menu" class="overlay hidden">
+        <div class="panel pause-panel">
           <h2>Paused</h2>
+          <canvas id="fullmap" class="fullmap" width="300" height="300" aria-label="Full map"></canvas>
+          <p id="map-legend" class="fine legend"><span style="color:#fff">● you</span> · <span style="color:#3ddc84">◆ guardian altar</span> · <span style="color:#5aa9ff">● unown altar</span> · <span style="color:#ff9b3d">◆ challenge altar</span> · <span style="color:#6ff3ff">◆ portal</span> · <span style="color:#ff4040">● boss</span> · grey = used</p>
           <button id="resume-btn" type="button">Resume</button>
           <p><button id="quit-btn" class="link" type="button">Quit run (counts as quit, grants nothing)</button></p>
           <p class="fine">Save &amp; quit is not available yet (needs safe local saves).</p>

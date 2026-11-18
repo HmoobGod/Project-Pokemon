@@ -52,6 +52,9 @@ Result status: **NOT YET RUN** — only the owner can fill in results below.
 | 19 | If a zone clock reaches 0:00, the HUD shows **FINAL SWARM** in red, enemies get much tougher, and you can keep fighting (no automatic exit) | |
 | 20 | Zone 3's purple portal (**Enter portal to Shrine**) leads to the Shrine; the Legendary appears; beating it shows **Legendary defeated** that says it is NOT a completed run | |
 | 21 | ⏸ → **Quit run** shows **Run abandoned**; switching apps and back leaves the game paused | |
+| 22 | The round **minimap** (top right) shows you and the altars; tapping it pauses and shows the **full map** | |
+| 23 | Standing in the blue **Unown** circle fills it (percentage shown); when full, a blessing choice appears marked "no gameplay effect yet"; tapping one resumes | |
+| 24 | On the orange **Challenge** altar, **Start Challenge** spawns a group of the same enemy; the counter goes up as you defeat them and the altar turns grey when won; no item is given | |
 
 Tip: a full normal run can take up to 30+ minutes. To check the zone/altar/portal/Shrine flow quickly, open `http://<that-address>:4173/?preset=short&debug=1` (30-second zone clocks, small boss HP, labelled SHORT TEST PRESET), then also play as far as you can on the normal rules.
 
@@ -63,7 +66,7 @@ Commit tested (git rev-parse --short HEAD):
 Phone model + Android version:
 Chrome version (chrome://version):
 Served with: npm run phone:preview / npm run phone
-Checks 1-21 (pass/fail + note for each fail):
+Checks 1-24 (pass/fail + note for each fail):
 Normal run reached: zone __ / Final Swarm seen? __ / guardians __ / Shrine? __ (or short preset only?):
 Typical FPS / FPS with many enemies:
 Screen size shown in debug corner:

@@ -2,8 +2,9 @@
 import { GameView } from './render/scene.ts';
 import { createControls } from './input/controls.ts';
 import { SoundFx } from './audio.ts';
-import { availableAction, chooseUpgrade, createWorld, distanceToPortal, isRunOver, mapLabel, overtimeSeconds, performAction, quitRun, step, type World } from './sim/world.ts';
-import { SHORT_RULES, xpToNext } from './sim/config.ts';
+import { availableAction, chooseBlessing, chooseUpgrade, createWorld, distanceToPortal, isRunOver, mapLabel, overtimeSeconds, performAction, quitRun, step, type World } from './sim/world.ts';
+import { PROVISIONAL_BLESSINGS, SHORT_RULES, xpToNext } from './sim/config.ts';
+import { drawMap } from './ui/minimap.ts';
 import { UPGRADES } from './sim/upgrades.ts';
 import { browserLoaderDeps, loadPrivateSprites, type SpriteLoadResult } from './sprites/loader.ts';
 import { buildCredits, spriteStatusText } from './sprites/credits.ts';
@@ -69,6 +70,20 @@ const levelOverlay = $('levelup');
 const resultOverlay = $('result');
 const pauseOverlay = $('pause-menu');
 const actionBtn = $('action-btn');
+const blessingOverlay = $('blessing');
+const blessingChoicesEl = $('blessing-choices');
+const interactStatus = $('interact-status');
+const minimapCanvas = $('minimap') as HTMLCanvasElement;
+const fullmapCanvas = $('fullmap') as HTMLCanvasElement;
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+function sizeCanvas(c: HTMLCanvasElement): CanvasRenderingContext2D | null {
+  const css = c.getBoundingClientRect().width || c.width;
+  c.width = Math.round(css * DPR);
+  c.height = Math.round(css * DPR);
+  return c.getContext('2d');
+}
+let miniCtx = sizeCanvas(minimapCanvas);
+let fullCtx: CanvasRenderingContext2D | null = null;
 const zoneClock = $('zone-clock');
 const objectiveText = $('objective-text');
 const bossBar = $('boss-bar');
@@ -114,6 +129,13 @@ function syncOverlays(): void {
   levelOverlay.classList.toggle('hidden', !(started && world.phase === 'levelup'));
   resultOverlay.classList.toggle('hidden', !isRunOver(world));
   pauseOverlay.classList.toggle('hidden', !(paused && !isRunOver(world)));
+  if (paused && !isRunOver(world)) {
+    fullCtx = sizeCanvas(fullmapCanvas);
+    if (fullCtx) drawMap(fullCtx, world, fullmapCanvas.width, 'full');
+  }
+  blessingOverlay.classList.toggle('hidden', world.phase !== 'blessing');
+  if (world.phase === 'blessing' && blessingChoicesEl.childElementCount === 0) renderBlessings();
+  if (world.phase !== 'blessing') blessingChoicesEl.innerHTML = '';
   if (world.phase === 'levelup' && choicesEl.childElementCount === 0) renderChoices();
   if (world.phase !== 'levelup') choicesEl.innerHTML = '';
   const r = world.result;
@@ -130,6 +152,27 @@ function syncOverlays(): void {
     $('result-summary').textContent =
       `${lead} Time ${formatTime(r.time)} · Reached ${r.reached} · Zones cleared ${r.zonesCleared}/${world.rules.zones.length} · Guardians ${r.guardiansDefeated} · ` +
       `Final Swarms ${r.finalSwarmsReached} · Level ${r.level} · ${r.kills} KOs. No rewards, currency or unlocks are granted in this prototype.`;
+  }
+}
+
+function renderBlessings(): void {
+  blessingChoicesEl.innerHTML = '';
+  (world.blessingChoices ?? []).forEach((id, i) => {
+    const def = PROVISIONAL_BLESSINGS.find((b) => b.id === id);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'choice';
+    b.dataset.blessing = id;
+    b.innerHTML = `<b>${i + 1}. ${def?.label ?? id}</b>Effect: pending evidence (none yet)`;
+    b.addEventListener('click', () => pickBlessing(i));
+    blessingChoicesEl.appendChild(b);
+  });
+}
+
+function pickBlessing(i: number): void {
+  if (chooseBlessing(world, i)) {
+    handleEvents();
+    syncOverlays();
   }
 }
 
@@ -172,6 +215,10 @@ function handleEvents(): void {
       case 'pulse': sfx.play('pulse'); view.spawnPulseRing(ev.radius); break;
       case 'defeated': sfx.play('defeat'); break;
       case 'guardianAwakened': sfx.play('boss'); break;
+      case 'unownCharged': sfx.play('levelup'); break;
+      case 'challengeStarted': sfx.play('boss'); break;
+      case 'challengeWon': sfx.play('levelup'); break;
+      case 'challengeFailed': sfx.play('hurt'); break;
       case 'legendaryAppeared': sfx.play('boss'); break;
       case 'finalSwarm': sfx.play('boss'); break;
       case 'bossSlam': sfx.play('pulse'); { const b = world.enemies.find((e) => e.id === ev.id); if (b) view.spawnPulseRing(ev.radius, b.pos, 0xff3030); } break;
@@ -222,9 +269,18 @@ function updateHud(): void {
   const act = started && !paused ? availableAction(world) : null;
   actionBtn.classList.toggle('hidden', !act);
   actionBtn.classList.toggle('altar', act === 'wake-guardian');
+  actionBtn.classList.toggle('challenge', act === 'start-challenge');
   actionBtn.classList.toggle('shrine', act === 'enter-portal' && m.index === m.zoneCount - 1);
   actionBtn.dataset.action = act ?? '';
-  actionBtn.textContent = act === 'wake-guardian' ? 'Wake Guardian' : act === 'enter-portal' ? (m.index === m.zoneCount - 1 ? 'Enter portal to Shrine' : 'Enter portal') : '';
+  actionBtn.textContent = act === 'wake-guardian' ? 'Wake Guardian' : act === 'start-challenge' ? 'Start Challenge' : act === 'enter-portal' ? (m.index === m.zoneCount - 1 ? 'Enter portal to Shrine' : 'Enter portal') : '';
+  const u = m.unown;
+  const c = m.challenge;
+  let status = '';
+  if (u && (u.state === 'charging' || (u.state === 'idle' && u.charge > 0))) status = `Unown altar ${Math.round(u.charge * 100)}%${u.state === 'idle' ? ' (step back in to continue)' : ''}`;
+  if (c?.state === 'active') status = `Challenge: ${c.total - c.remaining}/${c.total} ${c.species}s defeated`;
+  interactStatus.textContent = status;
+  interactStatus.classList.toggle('hidden', !status || !started);
+  if (miniCtx) drawMap(miniCtx, world, minimapCanvas.width, 'mini');
 }
 
 const debugEl = $('debug');
@@ -327,6 +383,10 @@ $('credits-btn-2').addEventListener('click', () => showCredits(true));
 $('credits-close').addEventListener('click', () => showCredits(false));
 $('fullscreen').addEventListener('click', toggleFullscreen);
 $('pause').addEventListener('click', () => setPaused(!paused));
+// Tap the minimap (or press Tab) for the full map, shown in the pause menu like the guide's pause screen.
+minimapCanvas.addEventListener('click', () => {
+  if (world.phase === 'playing') setPaused(true);
+});
 $('resume-btn').addEventListener('click', () => setPaused(false));
 $('quit-btn').addEventListener('click', quit);
 actionBtn.addEventListener('click', tryAction);
@@ -343,12 +403,17 @@ controls.onKey((code) => {
   else if (paused && (code === 'Escape' || code === 'KeyP')) setPaused(false);
   else if (paused && code === 'KeyQ') quit();
   else if (world.phase === 'levelup' && /^(Digit|Numpad)[123]$/.test(code)) pick(Number(code.slice(-1)) - 1);
+  else if (world.phase === 'blessing' && /^(Digit|Numpad)[123]$/.test(code)) pickBlessing(Number(code.slice(-1)) - 1);
+  else if (code === 'Tab' && started && !isRunOver(world) && (paused || world.phase === 'playing')) setPaused(!paused);
   else if (isRunOver(world) && (code === 'KeyR' || code === 'Enter')) restart();
   else if (world.phase === 'playing' && (code === 'Escape' || code === 'KeyP')) setPaused(true);
   else if (world.phase === 'playing' && (code === 'KeyE' || code === 'Space')) tryAction();
   else if (code === 'KeyM') $('mute').click();
 });
-window.addEventListener('resize', () => view.resize());
+window.addEventListener('resize', () => {
+  view.resize();
+  miniCtx = sizeCanvas(minimapCanvas);
+});
 document.addEventListener('visibilitychange', () => {
   last = performance.now();
   if (document.hidden && world.phase === 'playing') setPaused(true); // phone: switching apps pauses
@@ -366,6 +431,11 @@ Object.defineProperty(window, '__arenaSlice', {
       enemies: world.enemies.length,
       paused,
       preset: shortPreset ? 'short' : 'normal',
+      blessingChoices: world.blessingChoices ? [...world.blessingChoices] : null,
+      blessings: [...world.blessings],
+      unown: world.map.unown ? { x: world.map.unown.pos.x, z: world.map.unown.pos.z, state: world.map.unown.state, charge: world.map.unown.charge } : null,
+      challenge: world.map.challenge ? { x: world.map.challenge.pos.x, z: world.map.challenge.pos.z, state: world.map.challenge.state, species: world.map.challenge.species, total: world.map.challenge.total, remaining: world.map.challenge.remaining } : null,
+      challengeEnemies: world.enemies.filter((e) => e.challenge).map((e) => e.kind),
       map: { kind: world.map.kind, index: world.map.index, zoneCount: world.map.zoneCount, name: world.map.name, label: mapLabel(world.map), state: world.map.state, zoneTime: world.map.zoneTime, zoneSeconds: world.map.zoneSeconds, finalSwarm: world.map.finalSwarm, altar: world.map.altar ? { x: world.map.altar.pos.x, z: world.map.altar.pos.z, state: world.map.altar.state } : null, portal: world.map.portal ? { ...world.map.portal } : null, portalDistance: distanceToPortal(world), action: availableAction(world) },
       boss: (() => { const b = world.enemies.find((e) => e.id === world.map.bossId); return b ? { kind: b.kind, hp: b.hp, maxHp: b.maxHp, x: b.pos.x, z: b.pos.z, ai: b.ai } : null; })(),
       enemyPositions: world.enemies.map((e) => [Math.round(e.pos.x * 10) / 10, Math.round(e.pos.z * 10) / 10, e.kind === 'boss' || e.kind === 'legendary' ? 1 : 0]),

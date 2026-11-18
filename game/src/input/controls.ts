@@ -19,7 +19,7 @@ export function createControls(root: HTMLElement, joystickBase: HTMLElement, joy
   const onKeyDown = (ev: KeyboardEvent) => {
     if (!pressed.has(ev.code)) keyHandlers.forEach((h) => h(ev.code));
     pressed.add(ev.code);
-    if (ev.code.startsWith('Arrow') || ev.code === 'Space') ev.preventDefault();
+    if (ev.code.startsWith('Arrow') || ev.code === 'Space' || ev.code === 'Tab') ev.preventDefault();
   };
   const onKeyUp = (ev: KeyboardEvent) => pressed.delete(ev.code);
   const onBlur = () => pressed.clear();

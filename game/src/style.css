@@ -55,3 +55,12 @@ button.link { background: none; border: none; color: #6ff3ff; text-decoration: u
 .objective .preset.proto { background: #5a2fd0; }
 .portal-btn.altar { background: #2e9e5b; box-shadow: 0 0 20px #3ddc84; }
 .portal-btn.shrine { background: #6b45d8; box-shadow: 0 0 24px #b48cff; }
+
+.minimap { position: absolute; right: 10px; top: calc(env(safe-area-inset-top, 0px) + 52px); width: 120px; height: 120px; border-radius: 50%; border: 2px solid rgba(255,255,255,.7); pointer-events: auto; cursor: pointer; z-index: 1; }
+.fullmap { display: block; margin: 6px auto; width: min(70vw, 300px); height: min(70vw, 300px); border: 2px solid rgba(255,255,255,.6); border-radius: 8px; }
+.pause-panel { max-height: 94vh; overflow-y: auto; }
+.legend .l-you { color: #fff; } 
+.interact-status { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(env(safe-area-inset-bottom, 0px) + 96px); background: rgba(0,0,0,.55); padding: 6px 12px; border-radius: 10px; font-weight: 700; text-shadow: 0 1px 2px #000; pointer-events: none; }
+.interact-status.hidden { display: none; }
+.portal-btn.challenge { background: #c46a12; box-shadow: 0 0 20px #ff9b3d; }
+@media (max-width: 500px) { .minimap { width: 92px; height: 92px; top: calc(env(safe-area-inset-top, 0px) + 150px); } }

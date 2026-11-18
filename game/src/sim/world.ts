@@ -21,6 +21,7 @@ import {
   ARENA_HALF_SIZE,
   BOSS_PHASE_SPAWN_MUL,
   BOSS_SLAM,
+  CHALLENGE,
   ENEMIES,
   LEGENDARY_SLAM,
   NORMAL_RULES,
@@ -30,8 +31,11 @@ import {
   PULSE,
   SPAWN,
   STRIKE_GRACE,
+  UNOWN,
+  PROVISIONAL_BLESSINGS,
   spawnInterval,
   xpToNext,
+  type BlessingId,
   type EnemyKind,
   type Obstacle,
   type RunRules,
@@ -44,7 +48,7 @@ export interface Vec2 {
   z: number;
 }
 
-export type Phase = 'playing' | 'levelup' | 'defeated' | 'quit' | 'shrine-cleared';
+export type Phase = 'playing' | 'levelup' | 'blessing' | 'defeated' | 'quit' | 'shrine-cleared';
 /** 'victory' is intentionally absent until the Shrine finale's real rules are confirmed. */
 export type Outcome = 'defeat' | 'quit' | 'shrine-cleared';
 
@@ -86,6 +90,8 @@ export interface Enemy {
   slamTimer: number;
   /** multiplier on this enemy's attack damage (Final Swarm) */
   damageMul: number;
+  /** spawned by a Challenge altar wave */
+  challenge: boolean;
 }
 
 export interface Projectile {
@@ -105,6 +111,23 @@ export interface XpOrb {
 
 export type MapKind = 'zone' | 'shrine';
 export type AltarState = 'dormant' | 'awakened' | 'spent';
+export type UnownState = 'idle' | 'charging' | 'choosing' | 'spent';
+export type ChallengeState = 'idle' | 'active' | 'won' | 'failed';
+
+export interface UnownAltar {
+  pos: Vec2;
+  state: UnownState;
+  /** 0..1 fill of the circle */
+  charge: number;
+}
+
+export interface ChallengeAltar {
+  pos: Vec2;
+  species: 'chaser' | 'brute';
+  state: ChallengeState;
+  total: number;
+  remaining: number;
+}
 /** zone: explore -> guardian -> portal; shrine: intro -> legendary -> cleared */
 export type MapState = 'explore' | 'guardian' | 'portal' | 'intro' | 'legendary' | 'cleared';
 
@@ -120,6 +143,8 @@ export interface MapProgress {
   zoneSeconds: number;
   finalSwarm: boolean;
   altar: { pos: Vec2; state: AltarState } | null;
+  unown: UnownAltar | null;
+  challenge: ChallengeAltar | null;
   bossId: number | null;
   portal: Vec2 | null;
   obstacles: readonly Obstacle[];
@@ -128,7 +153,7 @@ export interface MapProgress {
   introTimer: number;
 }
 
-export type ActionKind = 'wake-guardian' | 'enter-portal';
+export type ActionKind = 'wake-guardian' | 'start-challenge' | 'enter-portal';
 
 export type GameEvent =
   | { type: 'shot'; count: number }
@@ -141,6 +166,11 @@ export type GameEvent =
   | { type: 'upgradeChosen'; id: UpgradeId }
   | { type: 'pulse'; radius: number; hits: number }
   | { type: 'finalSwarm'; zone: number }
+  | { type: 'unownCharged'; zone: number }
+  | { type: 'blessingChosen'; id: BlessingId }
+  | { type: 'challengeStarted'; zone: number; species: string; total: number }
+  | { type: 'challengeWon'; zone: number }
+  | { type: 'challengeFailed'; zone: number; reason: 'defeat' | 'left-zone' }
   | { type: 'guardianAwakened'; id: number; zone: number }
   | { type: 'bossSlamWindup'; id: number; radius: number }
   | { type: 'bossSlam'; id: number; radius: number; hit: boolean }
@@ -163,6 +193,8 @@ export interface RunStats {
   zonesCleared: number;
   legendaryDefeated: boolean;
   finalSwarmsReached: number;
+  challengesWon: number;
+  challengesFailed: number;
 }
 
 export interface RunResult {
@@ -174,6 +206,10 @@ export interface RunResult {
   guardiansDefeated: number;
   legendaryDefeated: boolean;
   finalSwarmsReached: number;
+  challengesWon: number;
+  challengesFailed: number;
+  /** run-only provisional blessings picked (no gameplay effect yet) */
+  blessings: BlessingId[];
   kills: number;
   level: number;
 }
@@ -193,6 +229,10 @@ export interface World {
   spawnTimer: number;
   pendingLevelUps: number;
   choices: UpgradeId[] | null;
+  /** Unown blessing offer (phase 'blessing') */
+  blessingChoices: BlessingId[] | null;
+  /** run-only, provisional: recorded but has no gameplay effect until evidence exists */
+  blessings: BlessingId[];
   stats: RunStats;
   map: MapProgress;
   result: RunResult | null;
@@ -221,6 +261,8 @@ function zoneMap(rules: RunRules, index: number): MapProgress {
     zoneSeconds: rules.zoneSeconds,
     finalSwarm: false,
     altar: { pos: { ...def.altar }, state: 'dormant' },
+    unown: { pos: { x: def.unown.x, z: def.unown.z }, state: 'idle', charge: 0 },
+    challenge: { pos: { x: def.challenge.x, z: def.challenge.z }, species: def.challenge.species, state: 'idle', total: 0, remaining: 0 },
     bossId: null,
     portal: null,
     obstacles: def.obstacles,
@@ -240,6 +282,8 @@ function shrineMap(rules: RunRules): MapProgress {
     zoneSeconds: rules.zoneSeconds,
     finalSwarm: false,
     altar: null,
+    unown: null,
+    challenge: null,
     bossId: null,
     portal: null,
     obstacles: rules.shrine.obstacles,
@@ -284,7 +328,9 @@ export function createWorld(seed: number, options: WorldOptions = {}): World {
     spawnTimer: SPAWN.initialDelay,
     pendingLevelUps: 0,
     choices: null,
-    stats: { kills: 0, damageDealt: 0, damageTaken: 0, xpCollected: 0, guardiansDefeated: 0, zonesCleared: 0, legendaryDefeated: false, finalSwarmsReached: 0 },
+    blessingChoices: null,
+    blessings: [],
+    stats: { kills: 0, damageDealt: 0, damageTaken: 0, xpCollected: 0, guardiansDefeated: 0, zonesCleared: 0, legendaryDefeated: false, finalSwarmsReached: 0, challengesWon: 0, challengesFailed: 0 },
     map: zoneMap(rules, 0),
     result: null,
     events: [],
@@ -306,6 +352,7 @@ export function isRunOver(world: World): boolean {
 function endRun(world: World, outcome: Outcome): void {
   world.phase = outcome === 'defeat' ? 'defeated' : outcome;
   world.choices = null;
+  world.blessingChoices = null;
   world.pendingLevelUps = 0;
   world.result = {
     outcome,
@@ -315,6 +362,9 @@ function endRun(world: World, outcome: Outcome): void {
     guardiansDefeated: world.stats.guardiansDefeated,
     legendaryDefeated: world.stats.legendaryDefeated,
     finalSwarmsReached: world.stats.finalSwarmsReached,
+    challengesWon: world.stats.challengesWon,
+    challengesFailed: world.stats.challengesFailed,
+    blessings: [...world.blessings],
     kills: world.stats.kills,
     level: world.player.level,
   };
@@ -376,6 +426,41 @@ export function step(world: World, rawInput: MoveInput, dt: number): void {
   updatePulse(world, dt);
   updateProjectiles(world, dt);
   updateOrbs(world, dt);
+  if (world.phase === 'playing') updateUnown(world, dt);
+}
+
+/** Unown circle fills while the player stands inside it (progress is kept if they step out — placeholder). */
+function updateUnown(world: World, dt: number): void {
+  const u = world.map.unown;
+  if (!u || u.state === 'spent' || u.state === 'choosing') return;
+  const inside = dist2(u.pos, world.player.pos) <= UNOWN.radius * UNOWN.radius;
+  if (!inside) {
+    if (u.state === 'charging') u.state = 'idle';
+    return;
+  }
+  u.state = 'charging';
+  u.charge = Math.min(1, u.charge + dt / world.rules.unownChargeSeconds);
+  if (u.charge >= 1 - 1e-9) {
+    u.charge = 1;
+    u.state = 'choosing';
+    world.phase = 'blessing';
+    world.blessingChoices = PROVISIONAL_BLESSINGS.map((b) => b.id);
+    world.events.push({ type: 'unownCharged', zone: world.map.index + 1 });
+  }
+}
+
+/** Pick one offered Unown blessing. Run-only and PROVISIONAL: it is recorded, with no gameplay effect. */
+export function chooseBlessing(world: World, index: number): boolean {
+  if (world.phase !== 'blessing' || !world.blessingChoices) return false;
+  if (!Number.isInteger(index) || index < 0 || index >= world.blessingChoices.length) return false;
+  const id = world.blessingChoices[index]!;
+  world.blessings.push(id);
+  world.blessingChoices = null;
+  if (world.map.unown) world.map.unown.state = 'spent';
+  world.phase = 'playing';
+  world.events = [{ type: 'blessingChosen', id }];
+  if (world.pendingLevelUps > 0) openLevelUp(world);
+  return true;
 }
 
 function updateMapClock(world: World, dt: number): void {
@@ -484,6 +569,7 @@ export function spawnEnemy(world: World, kind: EnemyKind, at?: Vec2): Enemy {
     hitFlash: 0,
     slamTimer: kind === 'boss' || kind === 'legendary' ? BOSS_SLAM.firstDelay : 0,
     damageMul,
+    challenge: false,
   };
   world.enemies.push(e);
   return e;
@@ -582,6 +668,7 @@ export function damagePlayer(world: World, amount: number): boolean {
   world.stats.damageTaken += amount;
   world.events.push({ type: 'playerHit', damage: amount, hp: p.hp });
   if (p.hp <= 0) {
+    failActiveChallenge(world, 'defeat');
     endRun(world, 'defeat');
     world.events.push({ type: 'defeated', time: world.time, kills: world.stats.kills, level: p.level });
   }
@@ -688,6 +775,16 @@ export function hitEnemy(world: World, e: Enemy, damage: number): void {
 /** Map progression reacts only to the real HP-zero defeat of the awakened Guardian / Legendary. */
 function onEnemyKilled(world: World, e: Enemy): void {
   const m = world.map;
+  if (e.challenge && m.challenge?.state === 'active') {
+    m.challenge.remaining = Math.max(0, m.challenge.remaining - 1);
+    if (m.challenge.remaining === 0) {
+      m.challenge.state = 'won';
+      world.stats.challengesWon++;
+      // GUIDE #11 says a Great Ball is earned; NOT granted here until run-only items + earned-event provenance exist.
+      world.events.push({ type: 'challengeWon', zone: m.index + 1 });
+    }
+    return;
+  }
   if (e.id !== m.bossId) return;
   if (m.kind === 'zone' && e.kind === 'boss' && m.state === 'guardian') {
     world.stats.guardiansDefeated++;
@@ -720,6 +817,7 @@ export function availableAction(world: World): ActionKind | null {
   const m = world.map;
   if (m.kind !== 'zone') return null;
   if (m.state === 'explore' && m.altar?.state === 'dormant' && within(world, m.altar.pos, ALTAR.activateRange)) return 'wake-guardian';
+  if (m.challenge?.state === 'idle' && within(world, m.challenge.pos, CHALLENGE.activateRange)) return 'start-challenge';
   if (m.state === 'portal' && within(world, m.portal, PORTAL.activateRange)) return 'enter-portal';
   return null;
 }
@@ -742,6 +840,33 @@ export function wakeGuardian(world: World): boolean {
   return true;
 }
 
+/** Start the zone's Challenge altar: a genuine wave of ONE species that must all be defeated. Once per zone. */
+export function startChallenge(world: World): boolean {
+  if (availableAction(world) !== 'start-challenge') return false;
+  const c = world.map.challenge!;
+  world.events = [];
+  const n = world.rules.challengeWaveSize;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + randRange(world.rng, -0.2, 0.2);
+    const r = randRange(world.rng, CHALLENGE.spawnRingMin, CHALLENGE.spawnRingMax);
+    const e = spawnEnemy(world, c.species, { x: c.pos.x + Math.cos(a) * r, z: c.pos.z + Math.sin(a) * r });
+    e.challenge = true;
+  }
+  c.state = 'active';
+  c.total = n;
+  c.remaining = n;
+  world.events.push({ type: 'challengeStarted', zone: world.map.index + 1, species: c.species, total: n });
+  return true;
+}
+
+function failActiveChallenge(world: World, reason: 'defeat' | 'left-zone'): void {
+  const c = world.map.challenge;
+  if (c?.state !== 'active') return;
+  c.state = 'failed';
+  world.stats.challengesFailed++;
+  world.events.push({ type: 'challengeFailed', zone: world.map.index + 1, reason });
+}
+
 export function canActivatePortal(world: World): boolean {
   return availableAction(world) === 'enter-portal';
 }
@@ -758,6 +883,7 @@ export function distanceToPortal(world: World): number | null {
 export function activatePortal(world: World): boolean {
   if (!canActivatePortal(world)) return false;
   world.events = [];
+  failActiveChallenge(world, 'left-zone');
   const from = world.map.index;
   world.stats.zonesCleared++;
   // Run-only progress is kept (level, upgrades, HP). XP orbs already earned on the ground are collected.
@@ -783,6 +909,7 @@ export function activatePortal(world: World): boolean {
 export function performAction(world: World): ActionKind | null {
   const a = availableAction(world);
   if (a === 'wake-guardian') return wakeGuardian(world) ? a : null;
+  if (a === 'start-challenge') return startChallenge(world) ? a : null;
   if (a === 'enter-portal') return activatePortal(world) ? a : null;
   return null;
 }
