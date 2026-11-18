@@ -1,0 +1,26 @@
+{
+  "name": "project-pokemon-arena-slice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Original Three.js + TypeScript arena-survival vertical slice (placeholder art, no third-party game assets, no rewards).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "build:esbuild": "node tools/build-esbuild.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "check:offline": "node tools/check-offline.mjs dist",
+    "smoke": "node tools/smoke.mjs dist"
+  },
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "@types/three": "0.180.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.3",
+    "vite": "^7.1.0"
+  }
+}

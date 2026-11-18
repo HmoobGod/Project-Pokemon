@@ -1,0 +1,32 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #000; font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; color: #fff; }
+#app { position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; }
+#view { display: block; width: 100%; height: 100%; }
+
+#hud { position: absolute; top: env(safe-area-inset-top, 0); left: 0; right: 0; padding: 10px 12px; display: flex; gap: 12px; align-items: center; pointer-events: none; }
+.bars { flex: 1; display: flex; flex-direction: column; gap: 6px; max-width: 420px; }
+.bar { position: relative; height: 18px; background: rgba(0,0,0,.45); border-radius: 9px; overflow: hidden; border: 2px solid rgba(255,255,255,.7); }
+.bar .fill { height: 100%; width: 0; transition: width .08s linear; }
+.bar.hp .fill { background: linear-gradient(#ff6b6b, #d62f2f); }
+.bar.xp { height: 12px; }
+.bar.xp .fill { background: linear-gradient(#6ff3ff, #1aa6c4); }
+.bar span { position: absolute; inset: 0; font-size: 12px; line-height: 14px; text-align: center; text-shadow: 0 1px 2px #000; }
+.bar.xp span { font-size: 10px; line-height: 9px; }
+.stats { font-weight: 700; text-shadow: 0 1px 3px #000; white-space: nowrap; }
+button.small { pointer-events: auto; background: rgba(0,0,0,.4); border: 2px solid rgba(255,255,255,.7); color: #fff; border-radius: 8px; padding: 4px 8px; font-size: 16px; }
+
+.stick { position: absolute; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: rgba(255,255,255,.15); border: 2px solid rgba(255,255,255,.5); pointer-events: none; display: none; }
+.knob { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255,255,255,.7); }
+
+.overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(10,20,40,.55); padding: 16px; }
+.overlay.hidden { display: none; }
+.panel { background: #1d2b4a; border: 3px solid #ffd34d; border-radius: 16px; padding: 18px 20px; max-width: 560px; width: 100%; text-align: center; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+.panel h1, .panel h2 { margin: 0 0 8px; color: #ffd34d; }
+.panel .hint { font-size: 14px; opacity: .9; }
+.panel .fine { font-size: 11px; opacity: .6; margin-bottom: 0; }
+.panel > button { font-size: 20px; font-weight: 700; padding: 10px 28px; border-radius: 12px; border: none; background: #ffd34d; color: #1d2b4a; cursor: pointer; }
+.choices { display: flex; flex-direction: column; gap: 10px; }
+.choice { display: block; width: 100%; text-align: left; padding: 12px 14px; border-radius: 12px; border: 2px solid #6ff3ff; background: #26395f; color: #fff; cursor: pointer; font-size: 15px; }
+.choice b { display: block; font-size: 17px; color: #6ff3ff; margin-bottom: 2px; }
+.choice:hover, .choice:focus { background: #33507f; outline: none; }
+@media (min-width: 700px) { .choices { flex-direction: row; } .choice { flex: 1; } }

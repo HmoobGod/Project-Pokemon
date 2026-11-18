@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>Project Pokemon — Arena Slice (prototype)</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="view"></canvas>
+      <div id="hud">
+        <div class="bars">
+          <div class="bar hp"><div id="hp-fill" class="fill"></div><span id="hp-text"></span></div>
+          <div class="bar xp"><div id="xp-fill" class="fill"></div><span id="xp-text"></span></div>
+        </div>
+        <div class="stats"><span id="time">0:00</span> · <span id="kills">0</span> KOs</div>
+        <button id="mute" class="small" type="button" aria-label="Toggle sound">🔊</button>
+      </div>
+      <div id="stick" class="stick"><div id="knob" class="knob"></div></div>
+
+      <div id="start" class="overlay">
+        <div class="panel">
+          <h1>Arena Slice</h1>
+          <p>Survive the waves. Your hero attacks the nearest enemy automatically.</p>
+          <p class="hint">Move: WASD / arrow keys, or drag anywhere on a touch screen.<br />Level-up: tap a card or press 1 / 2 / 3. Restart: R.</p>
+          <button id="start-btn" type="button">Start</button>
+          <p class="fine">Original placeholder prototype. No PokéBonk or Pokémon assets.</p>
+        </div>
+      </div>
+
+      <div id="levelup" class="overlay hidden">
+        <div class="panel">
+          <h2 id="levelup-title">Level up!</h2>
+          <div id="choices" class="choices"></div>
+        </div>
+      </div>
+
+      <div id="defeat" class="overlay hidden">
+        <div class="panel">
+          <h2>Defeated</h2>
+          <p id="defeat-summary"></p>
+          <button id="restart-btn" type="button">Restart</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
