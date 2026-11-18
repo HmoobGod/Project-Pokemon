@@ -43,6 +43,8 @@ jobs:
           else
             echo '::warning::game/package-lock.json missing; resolving with npm install (NOT reproducible) and uploading the lockfile'
             npm install --no-audit --no-fund
+            echo "LOCKFILE_SHA256=$(sha256sum package-lock.json | cut -d' ' -f1)"
+            echo "LOCKFILE_B64_BEGIN"; base64 -w0 package-lock.json; echo; echo "LOCKFILE_B64_END"
           fi
       - name: Upload resolved lockfile
         uses: actions/upload-artifact@v4
