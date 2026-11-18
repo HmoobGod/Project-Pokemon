@@ -3,7 +3,7 @@
 // otherwise that role keeps the original placeholder shape. Credit text is shown in-game exactly as
 // written here, so copy author names, source and licence from the asset's own records — never guess.
 //
-// Roles: player, chaser (small enemy), brute (big enemy). Any role you leave out stays a placeholder.
+// Roles: player, chaser (small enemy), brute (big enemy), boss (stage boss). Any role you leave out stays a placeholder.
 // image:       path inside private-sprites/ (.png or .webp, no "..", no http)
 // frameWidth / frameHeight: size of ONE frame in pixels
 // frames:      frames per row (animation length)

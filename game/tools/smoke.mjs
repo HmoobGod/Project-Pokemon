@@ -139,7 +139,9 @@ try {
   }
   if (!hpDropped) fail('never observed enemy damage before defeat');
   note(`defeated at t=${s.time.toFixed(1)}s level=${s.player.level} kills=${s.kills} upgrades=${s.player.upgrades.join(',')}`);
-  if (!(await page.isVisible('#defeat'))) fail('defeat overlay not visible');
+  if (!(await page.isVisible('#result'))) fail('result overlay not visible');
+  if ((await page.textContent('#result-title')) !== 'Defeated' || s.result?.outcome !== 'defeat') fail(`expected defeat result, got ${JSON.stringify(s.result)}`);
+  note(`defeat result: outcome=${s.result.outcome} stage=${s.result.stageReached} bosses=${s.result.bossesDefeated} (stage state at defeat: ${s.stage.state} ${s.stage.kills}/${s.stage.quota})`);
   await page.screenshot({ path: join(out, '05-defeat.png') });
 
   // Restart
@@ -151,6 +153,96 @@ try {
   if (!(s.time > 0.5)) fail('restarted run is not ticking');
   note(`restart OK: fresh run ticking t=${s.time.toFixed(1)}s hp=${s.player.hp}`);
   await page.screenshot({ path: join(out, '06-restarted.png') });
+
+  // Pause -> Quit is its own outcome (not defeat, not victory), then restart.
+  await page.click('#pause');
+  s = await waitFor((x) => x.paused, 2000, 'pause');
+  const tp = s.time;
+  await page.waitForTimeout(800);
+  s = await snap();
+  if (Math.abs(s.time - tp) > 1e-9) fail('time advanced while paused');
+  await page.click('#quit-btn');
+  s = await waitFor((x) => x.phase === 'quit', 2000, 'quit');
+  if ((await page.textContent('#result-title')) !== 'Run abandoned' || s.result.outcome !== 'quit') fail(`quit result wrong: ${JSON.stringify(s.result)}`);
+  await page.screenshot({ path: join(out, '06b-quit.png') });
+  await page.click('#restart-btn');
+  s = await waitFor((x) => x.runCount === 3 && x.phase === 'playing', 2000, 'restart after quit');
+  note(`pause froze time; quit -> outcome=quit ("Run abandoned"); restart -> fresh run #${s.runCount}`);
+  await page.close();
+
+  // ---- Full stage -> boss -> portal -> stage 2 -> boss -> FINAL portal -> victory, played through real input ----
+  // Uses ?preset=short (same mechanics, smaller quotas/boss HP) so it fits a real-time CI run.
+  {
+    const sp = await context.newPage();
+    sp.on('pageerror', (e) => errors.push(String(e)));
+    const ssnap = () => sp.evaluate(() => window.__arenaSlice.snapshot());
+    const held = new Set();
+    async function setKeys(want) {
+      for (const k of [...held]) if (!want.has(k)) { await sp.keyboard.up(k); held.delete(k); }
+      for (const k of want) if (!held.has(k)) { await sp.keyboard.down(k); held.add(k); }
+    }
+    function steer(x) {
+      const p = x.player; let mx = 0, mz = 0, nearest = Infinity;
+      for (const [ex, ez, isBoss] of x.enemyPositions) {
+        const dx = p.x - ex, dz = p.z - ez, d = Math.hypot(dx, dz) || 0.01;
+        nearest = Math.min(nearest, d);
+        const danger = isBoss ? (x.boss && x.boss.ai === 'slam' ? 8 : 6.5) : 4.5;
+        if (d < danger) { const w = ((danger - d) / danger) * (isBoss ? 3 : 1); mx += (dx / d) * w; mz += (dz / d) * w; }
+      }
+      if (Math.abs(p.x) > 25) mx -= Math.sign(p.x) * 1.5;
+      if (Math.abs(p.z) > 25) mz -= Math.sign(p.z) * 1.5;
+      let goal = x.stage.portal;
+      if (!goal && nearest > 4) { let best = 12; for (const [ox, oz] of x.orbPositions) { const d = Math.hypot(ox - p.x, oz - p.z); if (d < best) { best = d; goal = { x: ox, z: oz }; } } }
+      if (!goal && x.boss && Math.hypot(x.boss.x - p.x, x.boss.z - p.z) > 11) goal = { x: x.boss.x, z: x.boss.z };
+      if (goal) { const dx = goal.x - p.x, dz = goal.z - p.z, d = Math.hypot(dx, dz) || 1; const pull = x.stage.portal ? 1.6 : 0.8; mx += (dx / d) * pull; mz += (dz / d) * pull; }
+      const keys = new Set();
+      const len = Math.hypot(mx, mz);
+      if (len > 0.15) { mx /= len; mz /= len; if (mx > 0.38) keys.add('KeyD'); if (mx < -0.38) keys.add('KeyA'); if (mz > 0.38) keys.add('KeyS'); if (mz < -0.38) keys.add('KeyW'); }
+      return keys;
+    }
+    let won = null;
+    const seen = new Set();
+    for (let attempt = 1; attempt <= 4 && !won; attempt++) {
+      await sp.goto(`${origin}/index.html?preset=short&seed=${4000 + attempt}`);
+      await sp.waitForFunction(() => !!window.__arenaSlice);
+      if (!(await sp.isVisible('#preset-tag'))) fail('short preset is not labelled on screen');
+      await sp.click('#start-btn');
+      const tStart = Date.now();
+      let bossHpSeen = null;
+      for (;;) {
+        const x = await ssnap();
+        const tag = `${x.stage.index + 1}:${x.stage.state}`;
+        if (!seen.has(tag)) { seen.add(tag); note(`  attempt ${attempt}: stage ${tag} at t=${x.time.toFixed(1)}s kills=${x.stage.kills}/${x.stage.quota}`); if (x.stage.state === 'boss') await sp.screenshot({ path: join(out, `10-stage${x.stage.index + 1}-boss.png`) }); if (x.stage.state === 'portal') await sp.screenshot({ path: join(out, `11-stage${x.stage.index + 1}-portal.png`) }); }
+        if (x.boss && !seen.has('bossshot') && Math.hypot(x.boss.x - x.player.x, x.boss.z - x.player.z) < 8) { seen.add('bossshot'); await sp.screenshot({ path: join(out, '10b-boss-fight.png') }); }
+        if (x.boss) { if (bossHpSeen !== null && x.boss.hp < bossHpSeen && !seen.has(`dmg${x.stage.index}`)) { seen.add(`dmg${x.stage.index}`); note(`  boss ${x.stage.index + 1} taking damage: ${x.boss.hp}/${x.boss.maxHp}`); } bossHpSeen = x.boss.hp; } else bossHpSeen = null;
+        if (x.phase === 'levelup') { await setKeys(new Set()); await sp.keyboard.press('Digit1'); continue; }
+        if (x.phase === 'victory') { won = x; break; }
+        if (x.phase === 'defeated') { await setKeys(new Set()); note(`  attempt ${attempt}: defeated at stage ${tag} (retrying with a new run)`); break; }
+        if (x.stage.canEnter) {
+          await setKeys(new Set());
+          if (!(await sp.isVisible('#portal-btn'))) fail('portal button not shown while standing in an open portal');
+          if (x.stage.isFinal) await sp.screenshot({ path: join(out, '12-final-portal-button.png') });
+          await sp.click('#portal-btn'); // the explicit activation action
+          continue;
+        }
+        await setKeys(steer(x));
+        if (Date.now() - tStart > 240000) fail(`short run did not finish in 240s: ${JSON.stringify(x.stage)}`);
+        await sp.waitForTimeout(60);
+      }
+    }
+    await setKeys(new Set());
+    if (!won) fail('bot did not reach victory in 4 short-preset runs');
+    for (const t of ['1:objective', '1:boss', '1:portal', '2:objective', '2:boss', '2:portal']) if (!seen.has(t)) fail(`stage state ${t} never observed`);
+    if (!seen.has('dmg0') || !seen.has('dmg1')) fail('boss damage not observed for both bosses');
+    if ((await sp.textContent('#result-title')) !== 'Victory!' || won.result.outcome !== 'victory' || won.result.bossesDefeated !== 2 || won.result.stagesCleared !== 2) fail(`victory result wrong: ${JSON.stringify(won.result)}`);
+    await sp.screenshot({ path: join(out, '13-victory.png') });
+    note(`VICTORY via final portal: t=${won.time.toFixed(1)}s kills=${won.result.kills} bosses=${won.result.bossesDefeated} stagesCleared=${won.result.stagesCleared} level=${won.result.level}`);
+    await sp.keyboard.press('KeyR');
+    const r = await sp.waitForFunction(() => { const x = window.__arenaSlice.snapshot(); return x.phase === 'playing' && x.stage.index === 0 && x.stage.state === 'objective' && x.result === null ? x : null; }, null, { timeout: 3000 });
+    await r.dispose();
+    note('restart after victory -> fresh stage 1 objective');
+    await sp.close();
+  }
 
   // Portrait phone-sized viewport: tap Start, drag the joystick upward, confirm movement.
   const phone = await browser.newContext({ viewport: { width: 412, height: 915 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });

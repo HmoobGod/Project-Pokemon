@@ -4,7 +4,7 @@
  * Any invalid entry is dropped (that role falls back to placeholder shapes); a sprite
  * without complete credit information is never used.
  */
-export const SPRITE_ROLES = ['player', 'chaser', 'brute'] as const;
+export const SPRITE_ROLES = ['player', 'chaser', 'brute', 'boss'] as const;
 export type SpriteRole = (typeof SPRITE_ROLES)[number];
 
 export interface SpriteCredit {

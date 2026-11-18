@@ -2,8 +2,8 @@
 import { GameView } from './render/scene.ts';
 import { createControls } from './input/controls.ts';
 import { SoundFx } from './audio.ts';
-import { chooseUpgrade, createWorld, step, type World } from './sim/world.ts';
-import { xpToNext } from './sim/config.ts';
+import { activatePortal, canActivatePortal, chooseUpgrade, createWorld, distanceToPortal, isRunOver, quitRun, step, type World } from './sim/world.ts';
+import { SHORT_STAGES, xpToNext } from './sim/config.ts';
 import { UPGRADES } from './sim/upgrades.ts';
 import { browserLoaderDeps, loadPrivateSprites, type SpriteLoadResult } from './sprites/loader.ts';
 import { buildCredits, spriteStatusText } from './sprites/credits.ts';
@@ -46,7 +46,11 @@ try {
 const controls = createControls($('app'), $('stick'), $('knob'));
 const sfx = new SoundFx();
 
-let world: World = createWorld(seedFromUrl());
+// ?preset=short = same rules with small quotas, for automated/quick tests. Clearly labelled on screen.
+const shortPreset = params.get('preset') === 'short';
+const worldOptions = shortPreset ? { stages: SHORT_STAGES } : {};
+let world: World = createWorld(seedFromUrl(), worldOptions);
+let paused = false;
 let started = false;
 let accumulator = 0;
 let last = performance.now();
@@ -62,7 +66,13 @@ const timeEl = $('time');
 const killsEl = $('kills');
 const startOverlay = $('start');
 const levelOverlay = $('levelup');
-const defeatOverlay = $('defeat');
+const resultOverlay = $('result');
+const pauseOverlay = $('pause-menu');
+const portalBtn = $('portal-btn');
+const objectiveText = $('objective-text');
+const bossBar = $('boss-bar');
+const bossFill = $('boss-fill');
+$('preset-tag').classList.toggle('hidden', !shortPreset);
 const choicesEl = $('choices');
 
 function renderChoices(): void {
@@ -90,7 +100,8 @@ function pick(i: number): void {
 
 function restart(): void {
   view.clearDynamic();
-  world = createWorld((Math.random() * 2 ** 32) >>> 0);
+  world = createWorld((Math.random() * 2 ** 32) >>> 0, worldOptions);
+  paused = false;
   runCount++;
   accumulator = 0;
   syncOverlays();
@@ -100,13 +111,44 @@ function restart(): void {
 function syncOverlays(): void {
   startOverlay.classList.toggle('hidden', started);
   levelOverlay.classList.toggle('hidden', !(started && world.phase === 'levelup'));
-  defeatOverlay.classList.toggle('hidden', world.phase !== 'defeated');
+  resultOverlay.classList.toggle('hidden', !isRunOver(world));
+  pauseOverlay.classList.toggle('hidden', !(paused && !isRunOver(world)));
   if (world.phase === 'levelup' && choicesEl.childElementCount === 0) renderChoices();
   if (world.phase !== 'levelup') choicesEl.innerHTML = '';
-  if (world.phase === 'defeated') {
-    $('defeat-summary').textContent =
-      `Survived ${formatTime(world.time)} · Level ${world.player.level} · ${world.stats.kills} KOs. ` +
-      'No rewards are granted in this prototype.';
+  const r = world.result;
+  if (r) {
+    const title = r.outcome === 'victory' ? 'Victory!' : r.outcome === 'quit' ? 'Run abandoned' : 'Defeated';
+    $('result-title').textContent = title;
+    resultOverlay.dataset.outcome = r.outcome;
+    $('result-summary').textContent =
+      `${r.outcome === 'victory' ? 'You cleared every stage and left through the final portal.' : r.outcome === 'quit' ? 'You quit the run.' : 'You were knocked out.'} ` +
+      `Time ${formatTime(r.time)} · Stage ${r.stageReached}/${world.stage.count} · Stages cleared ${r.stagesCleared} · Bosses ${r.bossesDefeated} · Level ${r.level} · ${r.kills} KOs. ` +
+      'No rewards, currency or unlocks are granted in this prototype.';
+  }
+}
+
+function setPaused(on: boolean): void {
+  if (on && (!started || isRunOver(world))) return;
+  paused = on;
+  last = performance.now();
+  accumulator = 0;
+  syncOverlays();
+}
+
+function tryPortal(): void {
+  if (paused) return;
+  if (activatePortal(world)) {
+    handleEvents();
+    if (world.phase === 'playing' || world.phase === 'levelup') view.clearDynamic();
+    syncOverlays();
+  }
+}
+
+function quit(): void {
+  if (quitRun(world)) {
+    paused = false;
+    handleEvents();
+    syncOverlays();
   }
 }
 
@@ -122,6 +164,12 @@ function handleEvents(): void {
       case 'levelUp': sfx.play('levelup'); choicesEl.innerHTML = ''; break;
       case 'pulse': sfx.play('pulse'); view.spawnPulseRing(ev.radius); break;
       case 'defeated': sfx.play('defeat'); break;
+      case 'bossSpawned': sfx.play('boss'); break;
+      case 'bossSlam': sfx.play('pulse'); { const b = world.enemies.find((e) => e.id === ev.id); if (b) view.spawnPulseRing(ev.radius, b.pos, 0xff3030); } break;
+      case 'bossDefeated': sfx.play('levelup'); break;
+      case 'portalOpened': sfx.play('portal'); break;
+      case 'stageAdvanced': sfx.play('portal'); break;
+      case 'victory': sfx.play('victory'); break;
       default: break;
     }
   }
@@ -137,6 +185,21 @@ function updateHud(): void {
   xpText.textContent = `Lv ${p.level}  ${p.xp}/${need} XP`;
   timeEl.textContent = formatTime(world.time);
   killsEl.textContent = String(world.stats.kills);
+  const st = world.stage;
+  const label = `Stage ${st.index + 1}/${st.count} · ${st.name}`;
+  const boss = st.bossId !== null ? world.enemies.find((e) => e.id === st.bossId) : undefined;
+  if (st.state === 'objective') objectiveText.textContent = `${label} — defeat enemies ${st.kills}/${st.killQuota}`;
+  else if (st.state === 'boss') objectiveText.textContent = `${label} — the Guardian appeared! Defeat it`;
+  else objectiveText.textContent = `${label} — ${st.isFinal ? 'FINAL portal open: reach it to win' : 'portal open: reach it to continue'}`;
+  bossBar.classList.toggle('hidden', !boss);
+  if (boss) {
+    bossFill.style.width = `${(100 * boss.hp) / boss.maxHp}%`;
+    $('boss-text').textContent = `Guardian ${Math.ceil(boss.hp)} / ${boss.maxHp}`;
+  }
+  const canEnter = started && !paused && canActivatePortal(world);
+  portalBtn.classList.toggle('hidden', !canEnter);
+  portalBtn.classList.toggle('final', st.isFinal);
+  portalBtn.textContent = st.isFinal ? 'Enter final portal' : 'Enter portal';
 }
 
 const debugEl = $('debug');
@@ -150,7 +213,7 @@ function frame(now: number): void {
   if (debugOn) {
     debugEl.textContent = `${fps.toFixed(0)} fps  ${window.innerWidth}x${window.innerHeight} @${(window.devicePixelRatio || 1).toFixed(1)}x\nenemies ${world.enemies.length}  ${spriteStatusText(spriteResult)}`;
   }
-  if (started && world.phase === 'playing' && !document.hidden) {
+  if (started && !paused && world.phase === 'playing' && !document.hidden) {
     accumulator += frameDt;
     let changed = false;
     while (accumulator >= FIXED_DT) {
@@ -238,6 +301,10 @@ $('credits-btn').addEventListener('click', () => showCredits(true));
 $('credits-btn-2').addEventListener('click', () => showCredits(true));
 $('credits-close').addEventListener('click', () => showCredits(false));
 $('fullscreen').addEventListener('click', toggleFullscreen);
+$('pause').addEventListener('click', () => setPaused(!paused));
+$('resume-btn').addEventListener('click', () => setPaused(false));
+$('quit-btn').addEventListener('click', quit);
+portalBtn.addEventListener('click', tryPortal);
 $('mute').addEventListener('click', () => {
   sfx.muted = !sfx.muted;
   $('mute').textContent = sfx.muted ? '🔇' : '🔊';
@@ -248,13 +315,18 @@ controls.onKey((code) => {
     return;
   }
   if (!started && (code === 'Enter' || code === 'Space')) begin();
+  else if (paused && (code === 'Escape' || code === 'KeyP')) setPaused(false);
+  else if (paused && code === 'KeyQ') quit();
   else if (world.phase === 'levelup' && /^(Digit|Numpad)[123]$/.test(code)) pick(Number(code.slice(-1)) - 1);
-  else if (world.phase === 'defeated' && (code === 'KeyR' || code === 'Enter')) restart();
+  else if (isRunOver(world) && (code === 'KeyR' || code === 'Enter')) restart();
+  else if (world.phase === 'playing' && (code === 'Escape' || code === 'KeyP')) setPaused(true);
+  else if (world.phase === 'playing' && (code === 'KeyE' || code === 'Space')) tryPortal();
   else if (code === 'KeyM') $('mute').click();
 });
 window.addEventListener('resize', () => view.resize());
 document.addEventListener('visibilitychange', () => {
   last = performance.now();
+  if (document.hidden && world.phase === 'playing') setPaused(true); // phone: switching apps pauses
 });
 
 // Read-only snapshot for automated smoke tests. It exposes no way to change the run.
@@ -267,6 +339,14 @@ Object.defineProperty(window, '__arenaSlice', {
       time: world.time,
       player: { x: world.player.pos.x, z: world.player.pos.z, hp: world.player.hp, maxHp: world.player.maxHp, level: world.player.level, xp: world.player.xp, upgrades: [...world.player.upgradesTaken] },
       enemies: world.enemies.length,
+      paused,
+      preset: shortPreset ? 'short' : 'normal',
+      stage: { index: world.stage.index, count: world.stage.count, state: world.stage.state, kills: world.stage.kills, quota: world.stage.killQuota, isFinal: world.stage.isFinal, portal: world.stage.portal ? { ...world.stage.portal } : null, portalDistance: distanceToPortal(world), canEnter: canActivatePortal(world) },
+      boss: (() => { const b = world.enemies.find((e) => e.id === world.stage.bossId); return b ? { hp: b.hp, maxHp: b.maxHp, x: b.pos.x, z: b.pos.z, ai: b.ai } : null; })(),
+      enemyPositions: world.enemies.map((e) => [Math.round(e.pos.x * 10) / 10, Math.round(e.pos.z * 10) / 10, e.kind === 'boss' ? 1 : 0]),
+      orbPositions: world.orbs.slice(0, 60).map((o) => [Math.round(o.pos.x * 10) / 10, Math.round(o.pos.z * 10) / 10]),
+      result: world.result ? { ...world.result } : null,
+      stats: { ...world.stats },
       kills: world.stats.kills,
       xpCollected: world.stats.xpCollected,
       choices: world.choices ? [...world.choices] : null,

@@ -1,5 +1,5 @@
 /** Tiny synthesized sound effects (original, generated at runtime — no audio files). */
-export type Sfx = 'shot' | 'hit' | 'kill' | 'hurt' | 'xp' | 'levelup' | 'pulse' | 'defeat';
+export type Sfx = 'shot' | 'hit' | 'kill' | 'hurt' | 'xp' | 'levelup' | 'pulse' | 'defeat' | 'boss' | 'portal' | 'victory';
 
 export class SoundFx {
   private ctx: AudioContext | null = null;
@@ -32,6 +32,9 @@ export class SoundFx {
       levelup: ['square', 520, 1040, 0.3, 0.06],
       pulse: ['sine', 160, 60, 0.25, 0.1],
       defeat: ['sawtooth', 300, 50, 0.8, 0.1],
+      boss: ['sawtooth', 90, 180, 0.7, 0.12],
+      portal: ['sine', 400, 1200, 0.5, 0.08],
+      victory: ['square', 660, 1320, 0.9, 0.07],
     };
     const [type, f0, f1, dur, vol] = spec[kind];
     const t = ctx.currentTime;

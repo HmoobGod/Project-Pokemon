@@ -44,6 +44,16 @@ Result status: **NOT YET RUN** — only the owner can fill in results below.
 | 11 | **Credits** (start or defeat screen) opens and **Back** closes it | |
 | 12 | 🔊 button turns sound effects on/off | |
 | 13 | FPS (debug corner) stays roughly 30+ with many enemies on screen | |
+| 14 | Top text shows **Stage 1/2** and a KO counter that only goes up when enemies are defeated | |
+| 15 | At the quota, the **Guardian** (big teal boss with gold spikes) appears with a yellow boss bar; a red arrow points to it | |
+| 16 | A red ring grows under the Guardian before it slams; moving out of the ring avoids the damage | |
+| 17 | Defeating the Guardian does **not** end the game; a portal ring appears and the arrow points to it | |
+| 18 | Standing in the portal shows a big **Enter portal** button; tapping it starts **Stage 2/2** | |
+| 19 | After the Stage 2 Guardian, the gold **final portal** + **Enter final portal** button → **Victory!** screen | |
+| 20 | ⏸ pauses (game freezes); **Resume** continues; **Quit run** shows **Run abandoned** | |
+| 21 | Switching to another app and back leaves the game paused, not dead | |
+
+Tip: a full normal run takes several minutes. To check the stage/boss/portal flow quickly, open `http://<that-address>:4173/?preset=short&debug=1` (smaller quotas, labelled SHORT TEST PRESET), then also play at least one normal run.
 
 ## Report template (copy, fill in, send back)
 
@@ -53,7 +63,8 @@ Commit tested (git rev-parse --short HEAD):
 Phone model + Android version:
 Chrome version (chrome://version):
 Served with: npm run phone:preview / npm run phone
-Checks 1-13 (pass/fail + note for each fail):
+Checks 1-21 (pass/fail + note for each fail):
+Normal run reached: stage __ / boss __ / victory? (or short preset only?):
 Typical FPS / FPS with many enemies:
 Screen size shown in debug corner:
 Private sprites used? (none / which roles):

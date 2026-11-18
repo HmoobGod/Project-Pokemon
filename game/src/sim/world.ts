@@ -1,20 +1,31 @@
 /**
  * Pure gameplay simulation for the vertical slice. No rendering, DOM or network here,
  * so the rules can be unit tested and later run inside an offline Android WebView.
+ *
+ * Run structure: each stage = defeat its KO quota of normal enemies -> its boss spawns ->
+ * defeat the boss -> a portal opens -> the player walks into it and explicitly activates it.
+ * Activating a non-final portal moves to the next stage; activating the final portal is the
+ * (only) way to achieve a completed victory. Defeat, quit and victory are distinct outcomes.
+ * No currency, rewards or unlocks exist in this prototype.
  */
 import { createRng, randRange, type Rng } from './rng.ts';
 import {
   ARENA_HALF_SIZE,
+  BOSS_PHASE_SPAWN_MUL,
+  BOSS_SLAM,
   ENEMIES,
   OBSTACLES,
   ORB,
   PLAYER_BASE,
+  PORTAL,
   PULSE,
   SPAWN,
+  STAGES,
   STRIKE_GRACE,
   spawnInterval,
   xpToNext,
   type EnemyKind,
+  type StageDef,
 } from './config.ts';
 import { UPGRADES, UPGRADE_ORDER, type UpgradeId } from './upgrades.ts';
 
@@ -23,7 +34,8 @@ export interface Vec2 {
   z: number;
 }
 
-export type Phase = 'playing' | 'levelup' | 'defeated';
+export type Phase = 'playing' | 'levelup' | 'defeated' | 'victory' | 'quit';
+export type Outcome = 'defeat' | 'victory' | 'quit';
 
 export interface PlayerState {
   pos: Vec2;
@@ -47,7 +59,7 @@ export interface PlayerState {
   upgradesTaken: UpgradeId[];
 }
 
-export type EnemyAiState = 'chase' | 'windup' | 'recover';
+export type EnemyAiState = 'chase' | 'windup' | 'recover' | 'slam';
 
 export interface Enemy {
   id: number;
@@ -59,6 +71,8 @@ export interface Enemy {
   ai: EnemyAiState;
   aiTimer: number;
   hitFlash: number;
+  /** boss only: time until the next ground slam may start */
+  slamTimer: number;
 }
 
 export interface Projectile {
@@ -76,6 +90,23 @@ export interface XpOrb {
   value: number;
 }
 
+/** objective -> boss -> portal, per stage */
+export type StageState = 'objective' | 'boss' | 'portal';
+
+export interface StageProgress {
+  index: number;
+  count: number;
+  name: string;
+  state: StageState;
+  stageTime: number;
+  killQuota: number;
+  /** normal-enemy KOs made during this stage's objective */
+  kills: number;
+  bossId: number | null;
+  portal: Vec2 | null;
+  isFinal: boolean;
+}
+
 export type GameEvent =
   | { type: 'shot'; count: number }
   | { type: 'enemyHit'; id: number; damage: number }
@@ -86,13 +117,34 @@ export type GameEvent =
   | { type: 'levelUp'; level: number; choices: UpgradeId[] }
   | { type: 'upgradeChosen'; id: UpgradeId }
   | { type: 'pulse'; radius: number; hits: number }
-  | { type: 'defeated'; time: number; kills: number; level: number };
+  | { type: 'objectiveComplete'; stage: number }
+  | { type: 'bossSpawned'; id: number; stage: number }
+  | { type: 'bossSlamWindup'; id: number; radius: number }
+  | { type: 'bossSlam'; id: number; radius: number; hit: boolean }
+  | { type: 'bossDefeated'; id: number; stage: number }
+  | { type: 'portalOpened'; stage: number; pos: Vec2; final: boolean }
+  | { type: 'stageAdvanced'; stage: number }
+  | { type: 'defeated'; time: number; kills: number; level: number }
+  | { type: 'victory'; time: number }
+  | { type: 'quit'; time: number };
 
 export interface RunStats {
   kills: number;
   damageDealt: number;
   damageTaken: number;
   xpCollected: number;
+  bossesDefeated: number;
+  stagesCleared: number;
+}
+
+export interface RunResult {
+  outcome: Outcome;
+  time: number;
+  stageReached: number;
+  stagesCleared: number;
+  bossesDefeated: number;
+  kills: number;
+  level: number;
 }
 
 export interface World {
@@ -109,7 +161,10 @@ export interface World {
   pendingLevelUps: number;
   choices: UpgradeId[] | null;
   stats: RunStats;
-  /** events emitted during the most recent step (renderer/audio consume them) */
+  stages: readonly StageDef[];
+  stage: StageProgress;
+  result: RunResult | null;
+  /** events emitted during the most recent step/action (renderer/audio consume them) */
   events: GameEvent[];
 }
 
@@ -118,7 +173,28 @@ export interface MoveInput {
   z: number;
 }
 
-export function createWorld(seed: number): World {
+export interface WorldOptions {
+  stages?: readonly StageDef[];
+}
+
+function stageProgress(stages: readonly StageDef[], index: number): StageProgress {
+  const def = stages[index]!;
+  return {
+    index,
+    count: stages.length,
+    name: def.name,
+    state: 'objective',
+    stageTime: 0,
+    killQuota: def.killQuota,
+    kills: 0,
+    bossId: null,
+    portal: null,
+    isFinal: index === stages.length - 1,
+  };
+}
+
+export function createWorld(seed: number, options: WorldOptions = {}): World {
+  const stages = options.stages && options.stages.length > 0 ? options.stages : STAGES;
   return {
     seed,
     rng: createRng(seed),
@@ -152,8 +228,34 @@ export function createWorld(seed: number): World {
     spawnTimer: SPAWN.initialDelay,
     pendingLevelUps: 0,
     choices: null,
-    stats: { kills: 0, damageDealt: 0, damageTaken: 0, xpCollected: 0 },
+    stats: { kills: 0, damageDealt: 0, damageTaken: 0, xpCollected: 0, bossesDefeated: 0, stagesCleared: 0 },
+    stages,
+    stage: stageProgress(stages, 0),
+    result: null,
     events: [],
+  };
+}
+
+export function currentStageDef(world: World): StageDef {
+  return world.stages[world.stage.index]!;
+}
+
+export function isRunOver(world: World): boolean {
+  return world.phase === 'defeated' || world.phase === 'victory' || world.phase === 'quit';
+}
+
+function endRun(world: World, outcome: Outcome): void {
+  world.phase = outcome === 'defeat' ? 'defeated' : outcome;
+  world.choices = null;
+  world.pendingLevelUps = 0;
+  world.result = {
+    outcome,
+    time: world.time,
+    stageReached: world.stage.index + 1,
+    stagesCleared: world.stats.stagesCleared,
+    bossesDefeated: world.stats.bossesDefeated,
+    kills: world.stats.kills,
+    level: world.player.level,
   };
 }
 
@@ -203,6 +305,7 @@ export function step(world: World, rawInput: MoveInput, dt: number): void {
   if (!(dt > 0)) return;
   dt = Math.min(dt, MAX_STEP);
   world.time += dt;
+  world.stage.stageTime += dt;
 
   updatePlayer(world, rawInput, dt);
   updateSpawning(world, dt);
@@ -229,36 +332,41 @@ function updatePlayer(world: World, rawInput: MoveInput, dt: number): void {
 }
 
 function updateSpawning(world: World, dt: number): void {
+  const def = currentStageDef(world);
   world.spawnTimer -= dt;
   while (world.spawnTimer <= 0) {
-    world.spawnTimer += spawnInterval(world.time);
+    const mul = def.spawnIntervalMul * (world.stage.state === 'objective' ? 1 : BOSS_PHASE_SPAWN_MUL);
+    world.spawnTimer += spawnInterval(world.stage.stageTime) * mul;
     if (world.enemies.length >= SPAWN.maxEnemies) continue;
-    const kind: EnemyKind = world.time >= SPAWN.bruteUnlockTime && world.rng.next() < SPAWN.bruteChance ? 'brute' : 'chaser';
+    const kind: EnemyKind = world.stage.stageTime >= def.bruteUnlockTime && world.rng.next() < def.bruteChance ? 'brute' : 'chaser';
     spawnEnemy(world, kind);
   }
 }
 
+function ringPosition(world: World, radius: number): Vec2 {
+  const angle = randRange(world.rng, 0, Math.PI * 2);
+  const r = randRange(world.rng, SPAWN.ringMin, SPAWN.ringMax);
+  const pos = { x: world.player.pos.x + Math.cos(angle) * r, z: world.player.pos.z + Math.sin(angle) * r };
+  clampToArena(pos, radius);
+  return pos;
+}
+
 export function spawnEnemy(world: World, kind: EnemyKind, at?: Vec2): Enemy {
   const arch = ENEMIES[kind];
-  let pos: Vec2;
-  if (at) {
-    pos = { x: at.x, z: at.z };
-  } else {
-    const angle = randRange(world.rng, 0, Math.PI * 2);
-    const r = randRange(world.rng, SPAWN.ringMin, SPAWN.ringMax);
-    pos = { x: world.player.pos.x + Math.cos(angle) * r, z: world.player.pos.z + Math.sin(angle) * r };
-    clampToArena(pos, arch.radius);
-  }
+  const pos = at ? { x: at.x, z: at.z } : ringPosition(world, arch.radius);
+  const def = currentStageDef(world);
+  const maxHp = kind === 'boss' ? def.bossHp : Math.round(arch.maxHp * def.enemyHpMul);
   const e: Enemy = {
     id: world.nextId++,
     kind,
     pos,
-    hp: arch.maxHp,
-    maxHp: arch.maxHp,
+    hp: maxHp,
+    maxHp,
     radius: arch.radius,
     ai: 'chase',
     aiTimer: 0,
     hitFlash: 0,
+    slamTimer: kind === 'boss' ? BOSS_SLAM.firstDelay : 0,
   };
   world.enemies.push(e);
   return e;
@@ -269,13 +377,18 @@ function updateEnemies(world: World, dt: number): void {
   for (const e of world.enemies) {
     const arch = ENEMIES[e.kind];
     if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt);
+    if (e.kind === 'boss' && e.slamTimer > 0) e.slamTimer = Math.max(0, e.slamTimer - dt);
     const dx = p.pos.x - e.pos.x;
     const dz = p.pos.z - e.pos.z;
     const d = Math.hypot(dx, dz);
     const touching = e.radius + p.radius;
 
     if (e.ai === 'chase') {
-      if (d <= touching + arch.reach) {
+      if (e.kind === 'boss' && e.slamTimer <= 0 && d <= BOSS_SLAM.triggerRange) {
+        e.ai = 'slam';
+        e.aiTimer = BOSS_SLAM.windup;
+        world.events.push({ type: 'bossSlamWindup', id: e.id, radius: BOSS_SLAM.radius });
+      } else if (d <= touching + arch.reach) {
         e.ai = 'windup';
         e.aiTimer = arch.windup;
         world.events.push({ type: 'enemyWindup', id: e.id });
@@ -290,6 +403,17 @@ function updateEnemies(world: World, dt: number): void {
         if (d <= touching + arch.reach + STRIKE_GRACE) damagePlayer(world, arch.damage);
         e.ai = 'recover';
         e.aiTimer = arch.recover;
+        if (world.phase !== 'playing') return;
+      }
+    } else if (e.ai === 'slam') {
+      e.aiTimer -= dt;
+      if (e.aiTimer <= 0) {
+        const hit = d <= BOSS_SLAM.radius + p.radius;
+        world.events.push({ type: 'bossSlam', id: e.id, radius: BOSS_SLAM.radius, hit });
+        if (hit) damagePlayer(world, BOSS_SLAM.damage);
+        e.ai = 'recover';
+        e.aiTimer = BOSS_SLAM.recover;
+        e.slamTimer = BOSS_SLAM.cooldown;
         if (world.phase !== 'playing') return;
       }
     } else {
@@ -316,13 +440,15 @@ function separateEnemies(world: World): void {
       const d2 = dx * dx + dz * dz;
       if (d2 < min * min && d2 > 1e-8) {
         const d = Math.sqrt(d2);
-        const push = (min - d) / 2;
+        // the boss is heavy: small enemies get pushed, it barely moves
+        const wa = a.kind === 'boss' ? 0.1 : b.kind === 'boss' ? 0.9 : 0.5;
+        const push = min - d;
         const nx = dx / d;
         const nz = dz / d;
-        a.pos.x -= nx * push;
-        a.pos.z -= nz * push;
-        b.pos.x += nx * push;
-        b.pos.z += nz * push;
+        a.pos.x -= nx * push * wa;
+        a.pos.z -= nz * push * wa;
+        b.pos.x += nx * push * (1 - wa);
+        b.pos.z += nz * push * (1 - wa);
       }
     }
   }
@@ -336,8 +462,7 @@ export function damagePlayer(world: World, amount: number): boolean {
   world.stats.damageTaken += amount;
   world.events.push({ type: 'playerHit', damage: amount, hp: p.hp });
   if (p.hp <= 0) {
-    world.phase = 'defeated';
-    world.choices = null;
+    endRun(world, 'defeat');
     world.events.push({ type: 'defeated', time: world.time, kills: world.stats.kills, level: p.level });
   }
   return true;
@@ -425,7 +550,7 @@ function updateProjectiles(world: World, dt: number): void {
 }
 
 export function hitEnemy(world: World, e: Enemy, damage: number): void {
-  if (e.hp <= 0) return;
+  if (e.hp <= 0 || isRunOver(world)) return;
   const dealt = Math.min(e.hp, damage);
   e.hp -= dealt;
   e.hitFlash = 0.12;
@@ -436,7 +561,103 @@ export function hitEnemy(world: World, e: Enemy, damage: number): void {
     world.stats.kills++;
     world.orbs.push({ id: world.nextId++, pos: { x: e.pos.x, z: e.pos.z }, value: ENEMIES[e.kind].xp });
     world.events.push({ type: 'enemyKilled', id: e.id, kind: e.kind, pos: { x: e.pos.x, z: e.pos.z } });
+    onEnemyKilled(world, e);
   }
+}
+
+/** Stage progression is driven only by actual KOs. */
+function onEnemyKilled(world: World, e: Enemy): void {
+  const st = world.stage;
+  if (e.kind === 'boss') {
+    if (st.state !== 'boss' || e.id !== st.bossId) return;
+    world.stats.bossesDefeated++;
+    world.events.push({ type: 'bossDefeated', id: e.id, stage: st.index + 1 });
+    st.state = 'portal';
+    st.bossId = null;
+    st.portal = choosePortalPosition(world);
+    world.events.push({ type: 'portalOpened', stage: st.index + 1, pos: { ...st.portal }, final: st.isFinal });
+    return;
+  }
+  if (st.state !== 'objective') return;
+  st.kills++;
+  if (st.kills >= st.killQuota) {
+    world.events.push({ type: 'objectiveComplete', stage: st.index + 1 });
+    st.state = 'boss';
+    const boss = spawnEnemy(world, 'boss', ringPosition(world, ENEMIES.boss.radius));
+    st.bossId = boss.id;
+    world.events.push({ type: 'bossSpawned', id: boss.id, stage: st.index + 1 });
+  }
+}
+
+/** Portal appears at a fixed-candidate spot far enough from the player that reaching it is a real move. */
+function choosePortalPosition(world: World): Vec2 {
+  const lim = ARENA_HALF_SIZE - 4;
+  const candidates: Vec2[] = [
+    { x: 0, z: 0 },
+    { x: 0, z: -lim },
+    { x: 0, z: lim },
+    { x: -lim, z: 0 },
+    { x: lim, z: 0 },
+  ];
+  const p = world.player.pos;
+  let best = candidates[0]!;
+  let bestD = -1;
+  for (const c of candidates) {
+    const d = dist2(c, p);
+    if (d >= PORTAL.minDistanceFromPlayer ** 2) return { ...c };
+    if (d > bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return { ...best };
+}
+
+export function distanceToPortal(world: World): number | null {
+  const portal = world.stage.portal;
+  if (!portal) return null;
+  return Math.sqrt(dist2(portal, world.player.pos));
+}
+
+export function canActivatePortal(world: World): boolean {
+  if (world.phase !== 'playing' || world.stage.state !== 'portal') return false;
+  const d = distanceToPortal(world);
+  return d !== null && d <= PORTAL.activateRange;
+}
+
+/**
+ * Explicit player action. Returns false (and changes nothing) unless the portal is open and the
+ * player is standing in it. Final portal -> completed victory; otherwise -> next stage.
+ */
+export function activatePortal(world: World): boolean {
+  if (!canActivatePortal(world)) return false;
+  world.events = [];
+  const st = world.stage;
+  world.stats.stagesCleared++;
+  if (st.isFinal) {
+    endRun(world, 'victory');
+    world.events.push({ type: 'victory', time: world.time });
+    return true;
+  }
+  // Next stage: XP orbs already earned on the ground are collected, everything else is cleared.
+  const earned = world.orbs.reduce((sum, o) => sum + o.value, 0);
+  world.enemies = [];
+  world.projectiles = [];
+  world.orbs = [];
+  world.stage = stageProgress(world.stages, st.index + 1);
+  world.player.pos = { x: 0, z: 0 };
+  world.spawnTimer = SPAWN.initialDelay;
+  world.events.push({ type: 'stageAdvanced', stage: world.stage.index + 1 });
+  if (earned > 0) gainXp(world, earned);
+  return true;
+}
+
+/** Player chooses to abandon the run. Distinct from defeat and victory; grants nothing. */
+export function quitRun(world: World): boolean {
+  if (isRunOver(world)) return false;
+  endRun(world, 'quit');
+  world.events = [{ type: 'quit', time: world.time }];
+  return true;
 }
 
 function updateOrbs(world: World, dt: number): void {

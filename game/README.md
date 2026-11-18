@@ -12,6 +12,9 @@ Status: **prototype vertical slice.** Browser-tested only (headless Chrome). **N
 - Player auto-attacks the nearest enemy in range with projectiles; hit detection, HP, hit flash, brief invulnerability after being hit.
 - Kills drop XP orbs; walking near them (magnet radius) collects XP. **XP only comes from kills.**
 - Level-up pauses the run and offers 3 distinct upgrades (damage, fire rate, speed, max HP, multishot, magnet, new **Shock Pulse** AoE ability). Choose by tap/click or keys 1/2/3. Multiple level-ups queue.
+- **Stage → boss → portal loop (2 stages):** each stage has a KO quota of normal enemies (30, then 40). Only real KOs count — time alone never advances anything. Meeting the quota spawns that stage's **Guardian** boss (chases, melee wind-up, telegraphed red-ring ground slam; HP 600 / 1000 with an on-screen boss bar). Defeating it is **not** victory: it opens a portal placed ≥12 units away, which you must walk into and explicitly activate (**Enter portal** button / E / Space). Stage 1's portal moves you to the tougher stage 2; stage 2's gold **final portal** is the only way to win. A ground arrow points to the boss/portal.
+- Four distinct outcomes: **victory** (final portal), **defeat** (HP 0, at any point — including after a boss dies), **quit** (⏸ → Quit run), and **restart** (new run). The result screen names the outcome and shows time, stage, stages cleared, bosses, level and KOs. Pausing also happens automatically when the phone switches apps.
+- `?preset=short`: the same rules with small quotas/boss HP, used by the automated browser test; labelled **SHORT TEST PRESET** on screen.
 - HP 0 → defeat screen with run summary → Restart (button, R or Enter) starts a fresh run.
 - Synthesized sound effects (Web Audio, no audio files), mute button / M; full-screen button.
 - **Optional private sprites:** a generic loader shows locally supplied 2D sprite sheets as camera-facing billboards (8-direction or single-row, animated). Absent, invalid, uncredited or broken sprites fall back to the placeholder shapes. See [PHONE_TEST.md](PHONE_TEST.md#optional-your-own-private-sprites).
@@ -20,7 +23,7 @@ Status: **prototype vertical slice.** Browser-tested only (headless Chrome). **N
 
 ## Deliberately NOT in this slice
 
-No Stardust, currency, rewards, unlocks, saves, stages, bosses or portals. The defeat screen says no rewards are granted. Existing TEST_ONLY reward rates remain untouched until real gameplay authority and safe save settlement exist.
+No Stardust, currency, purchases, persistent rewards, unlocks or saves. Every result screen says no rewards are granted. Existing TEST_ONLY reward rates remain untouched until real gameplay authority and safe save settlement exist.
 
 ## Run it
 

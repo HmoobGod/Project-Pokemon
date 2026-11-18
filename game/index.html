@@ -15,16 +15,22 @@
           <div class="bar xp"><div id="xp-fill" class="fill"></div><span id="xp-text"></span></div>
         </div>
         <div class="stats"><span id="time">0:00</span> · <span id="kills">0</span> KOs</div>
+        <button id="pause" class="small" type="button" aria-label="Pause">⏸</button>
         <button id="fullscreen" class="small" type="button" aria-label="Full screen">⛶</button>
         <button id="mute" class="small" type="button" aria-label="Toggle sound">🔊</button>
       </div>
+      <div id="objective" class="objective"><div id="objective-text"></div><div id="preset-tag" class="preset hidden">SHORT TEST PRESET</div>
+        <div id="boss-bar" class="bar boss hidden"><div id="boss-fill" class="fill"></div><span id="boss-text">Guardian</span></div>
+      </div>
+      <button id="portal-btn" class="portal-btn hidden" type="button">Enter portal</button>
       <div id="stick" class="stick"><div id="knob" class="knob"></div></div>
 
       <div id="start" class="overlay">
         <div class="panel">
           <h1>Arena Slice</h1>
           <p>Survive the waves. Your hero attacks the nearest enemy automatically.</p>
-          <p class="hint">Move: WASD / arrow keys, or drag anywhere on a touch screen.<br />Level-up: tap a card or press 1 / 2 / 3. Restart: R.</p>
+          <p class="hint">Each stage: defeat enemies until the Guardian boss appears, beat it, then walk into the portal and tap <b>Enter portal</b> (or press E). Clear the final portal to win.</p>
+          <p class="hint">Move: WASD / arrow keys, or drag anywhere on a touch screen. Level-up: tap a card or press 1 / 2 / 3. Pause: ⏸ or Esc.</p>
           <button id="start-btn" type="button">Start</button>
           <p><button id="credits-btn" class="link" type="button">Credits</button></p>
           <p id="sprite-status" class="fine">Sprites: checking…</p>
@@ -58,10 +64,18 @@
 
       <div id="debug" class="debug hidden"></div>
 
-      <div id="defeat" class="overlay hidden">
+      <div id="pause-menu" class="overlay hidden">
         <div class="panel">
-          <h2>Defeated</h2>
-          <p id="defeat-summary"></p>
+          <h2>Paused</h2>
+          <button id="resume-btn" type="button">Resume</button>
+          <p><button id="quit-btn" class="link" type="button">Quit run (counts as quit, grants nothing)</button></p>
+        </div>
+      </div>
+
+      <div id="result" class="overlay hidden">
+        <div class="panel">
+          <h2 id="result-title">Defeated</h2>
+          <p id="result-summary"></p>
           <button id="restart-btn" type="button">Restart</button>
           <p><button id="credits-btn-2" class="link" type="button">Credits</button></p>
         </div>

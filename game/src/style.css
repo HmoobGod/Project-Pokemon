@@ -40,3 +40,11 @@ button.link { background: none; border: none; color: #6ff3ff; text-decoration: u
 .problems { padding-left: 18px; }
 .debug { position: absolute; left: 8px; bottom: 8px; font: 12px/1.3 monospace; background: rgba(0,0,0,.55); padding: 4px 6px; border-radius: 6px; pointer-events: none; white-space: pre; }
 .debug.hidden { display: none; }
+
+.objective { position: absolute; top: calc(env(safe-area-inset-top, 0px) + 58px); left: 50%; transform: translateX(-50%); width: min(92vw, 460px); text-align: center; pointer-events: none; text-shadow: 0 1px 3px #000; font-weight: 700; font-size: 15px; }
+.objective .preset { display: inline-block; margin-top: 2px; font-size: 11px; background: #b02a2a; padding: 1px 6px; border-radius: 6px; }
+.objective .preset.hidden, .bar.hidden, .portal-btn.hidden { display: none; }
+.bar.boss { margin-top: 6px; height: 16px; }
+.bar.boss .fill { background: linear-gradient(#ffd34d, #c48a00); }
+.portal-btn { position: absolute; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 28px); transform: translateX(-50%); font-size: 22px; font-weight: 800; padding: 14px 30px; border-radius: 16px; border: 3px solid #fff; background: #1aa6c4; color: #fff; box-shadow: 0 0 20px #6ff3ff; z-index: 2; }
+.portal-btn.final { background: #c48a00; box-shadow: 0 0 24px #ffd34d; }

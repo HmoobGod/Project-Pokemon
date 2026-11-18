@@ -1,6 +1,6 @@
 /** Three.js view of the simulation. Original primitive placeholder art only. */
 import * as THREE from 'three';
-import { ARENA_HALF_SIZE, OBSTACLES } from '../sim/config.ts';
+import { ARENA_HALF_SIZE, BOSS_SLAM, OBSTACLES, PORTAL } from '../sim/config.ts';
 import type { Enemy, World } from '../sim/world.ts';
 import type { SpriteRole } from '../sprites/manifest.ts';
 import type { LoadedSprite } from '../sprites/loader.ts';
@@ -14,6 +14,8 @@ interface EnemyView {
   body: THREE.Mesh | null;
   material: THREE.MeshStandardMaterial | null;
   sprite: SpriteView | null;
+  /** boss only: ground ring telegraphing the slam */
+  telegraph: THREE.Mesh | null;
 }
 
 /** A camera-facing billboard showing one animated frame of a loaded sprite sheet. */
@@ -29,6 +31,8 @@ interface PulseRing {
   material: THREE.MeshBasicMaterial;
   age: number;
   radius: number;
+  /** null = follows the player */
+  center: { x: number; z: number } | null;
 }
 
 export class GameView {
@@ -45,9 +49,19 @@ export class GameView {
   private readonly projectiles = new Map<number, THREE.Mesh>();
   private readonly orbs = new Map<number, THREE.Mesh>();
   private readonly rings: PulseRing[] = [];
+  private readonly portal: THREE.Group;
+  private readonly portalRingMat = new THREE.MeshStandardMaterial({ color: 0x6ff3ff, emissive: 0x1aa6c4, emissiveIntensity: 1.2 });
+  private readonly portalDiscMat = new THREE.MeshBasicMaterial({ color: 0x6ff3ff, transparent: true, opacity: 0.35, depthWrite: false });
+  private readonly guide: THREE.Mesh;
+  private readonly guideMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
   private readonly geo = {
     chaser: new THREE.IcosahedronGeometry(0.55, 1),
     brute: new THREE.DodecahedronGeometry(1.0, 0),
+    boss: new THREE.OctahedronGeometry(1.6, 0),
+    spike: new THREE.ConeGeometry(0.28, 1.1, 6),
+    disc: new THREE.CircleGeometry(1, 40),
+    portalRing: new THREE.TorusGeometry(1.6, 0.2, 10, 40),
+    arrow: new THREE.ConeGeometry(0.45, 1.2, 3),
     projectile: new THREE.SphereGeometry(0.22, 10, 8),
     orb: new THREE.OctahedronGeometry(0.25, 0),
     shadow: new THREE.CircleGeometry(1, 20),
@@ -77,6 +91,26 @@ export class GameView {
     this.playerPlaceholder = placeholder;
     this.playerBodyMat = bodyMat;
     this.scene.add(this.player);
+
+    // Portal: standing ring + activation zone on the ground (hidden until a boss is defeated).
+    this.portal = new THREE.Group();
+    const ring = new THREE.Mesh(this.geo.portalRing, this.portalRingMat);
+    ring.position.y = 1.8;
+    ring.name = 'ring';
+    this.portal.add(ring);
+    const zone = new THREE.Mesh(this.geo.disc, this.portalDiscMat);
+    zone.rotation.x = -Math.PI / 2;
+    zone.position.y = 0.03;
+    zone.scale.setScalar(PORTAL.activateRange);
+    this.portal.add(zone);
+    this.portal.visible = false;
+    this.scene.add(this.portal);
+
+    // Ground arrow pointing to the boss / open portal.
+    this.guide = new THREE.Mesh(this.geo.arrow, this.guideMat);
+    this.guide.rotation.x = -Math.PI / 2;
+    this.guide.visible = false;
+    this.scene.add(this.guide);
     this.resize();
   }
 
@@ -203,6 +237,7 @@ export class GameView {
   private disposeEnemyView(v: EnemyView, id: number): void {
     this.scene.remove(v.group);
     v.material?.dispose();
+    if (v.telegraph) (v.telegraph.material as THREE.Material).dispose();
     if (v.sprite) this.disposeSprite(v.sprite);
     this.enemies.delete(id);
   }
@@ -222,22 +257,43 @@ export class GameView {
     const sprite = this.makeSpriteView(e.kind);
     if (sprite) {
       group.add(sprite.sprite);
-      return { group, body: null, material: null, sprite };
+      return { group, body: null, material: null, sprite, telegraph: e.kind === 'boss' ? this.makeTelegraph(group) : null };
     }
-    const material = new THREE.MeshStandardMaterial({ color: e.kind === 'brute' ? 0x8b1e3f : 0x7b4fd6, flatShading: true });
-    const body = new THREE.Mesh(e.kind === 'brute' ? this.geo.brute : this.geo.chaser, material);
+    const color = e.kind === 'boss' ? 0x1f5f6b : e.kind === 'brute' ? 0x8b1e3f : 0x7b4fd6;
+    const material = new THREE.MeshStandardMaterial({ color, flatShading: true });
+    const body = new THREE.Mesh(e.kind === 'boss' ? this.geo.boss : e.kind === 'brute' ? this.geo.brute : this.geo.chaser, material);
     body.position.y = e.radius;
+    if (e.kind === 'boss') {
+      // original "guardian": faceted body with a crown of gold spikes
+      const spikeMat = new THREE.MeshStandardMaterial({ color: 0xffd34d, flatShading: true });
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * Math.PI * 2;
+        const spike = new THREE.Mesh(this.geo.spike, spikeMat);
+        spike.position.set(Math.cos(a) * 0.7, 1.35, Math.sin(a) * 0.7);
+        body.add(spike);
+      }
+    }
     group.add(body);
-    return { group, body, material, sprite: null };
+    return { group, body, material, sprite: null, telegraph: e.kind === 'boss' ? this.makeTelegraph(group) : null };
   }
 
-  spawnPulseRing(radius: number): void {
-    const material = new THREE.MeshBasicMaterial({ color: 0xfff27a, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
+  private makeTelegraph(group: THREE.Group): THREE.Mesh {
+    const t = new THREE.Mesh(this.geo.disc, new THREE.MeshBasicMaterial({ color: 0xff2a2a, transparent: true, opacity: 0, depthWrite: false }));
+    t.rotation.x = -Math.PI / 2;
+    t.position.y = 0.04;
+    t.scale.setScalar(BOSS_SLAM.radius);
+    t.visible = false;
+    group.add(t);
+    return t;
+  }
+
+  spawnPulseRing(radius: number, center: { x: number; z: number } | null = null, color = 0xfff27a): void {
+    const material = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, side: THREE.DoubleSide, depthWrite: false });
     const mesh = new THREE.Mesh(this.geo.ring, material);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = 0.1;
     this.scene.add(mesh);
-    this.rings.push({ mesh, material, age: 0, radius });
+    this.rings.push({ mesh, material, age: 0, radius, center: center ? { ...center } : null });
   }
 
   resize(): void {
@@ -273,16 +329,20 @@ export class GameView {
         this.enemies.set(e.id, v);
       }
       v.group.position.set(e.pos.x, 0, e.pos.z);
-      const pulse = e.ai === 'windup' ? 1 + 0.25 * Math.sin(world.time * 40) : 1;
+      const pulse = e.ai === 'windup' ? 1 + 0.25 * Math.sin(world.time * 40) : e.ai === 'slam' ? 1 + 0.12 * Math.sin(world.time * 25) : 1;
+      if (v.telegraph) {
+        v.telegraph.visible = e.ai === 'slam';
+        if (e.ai === 'slam') (v.telegraph.material as THREE.MeshBasicMaterial).opacity = 0.15 + 0.5 * (1 - Math.max(0, e.aiTimer) / BOSS_SLAM.windup);
+      }
       if (v.body && v.material) {
         v.body.scale.setScalar(pulse);
-        v.material.emissive.setHex(e.ai === 'windup' ? 0xaa2200 : e.hitFlash > 0 ? 0xffffff : 0x000000);
+        v.material.emissive.setHex(e.ai === 'windup' || e.ai === 'slam' ? 0xaa2200 : e.hitFlash > 0 ? 0xffffff : 0x000000);
         v.body.rotation.y = world.time * (e.kind === 'brute' ? 0.8 : 2);
       } else if (v.sprite) {
         this.updateSpriteFrame(v.sprite, world.time + e.id * 0.13, p.pos.x - e.pos.x, p.pos.z - e.pos.z);
         const sp = v.sprite.loaded.spec;
         v.sprite.sprite.scale.set((sp.height * sp.frameWidth * pulse) / sp.frameHeight, sp.height * pulse, 1);
-        if (e.ai === 'windup') v.sprite.material.color.setRGB(1, 0.35, 0.35);
+        if (e.ai === 'windup' || e.ai === 'slam') v.sprite.material.color.setRGB(1, 0.35, 0.35);
         else if (e.hitFlash > 0) v.sprite.material.color.setRGB(3, 3, 3);
         else v.sprite.material.color.setRGB(1, 1, 1);
       }
@@ -299,7 +359,8 @@ export class GameView {
       const r = this.rings[i]!;
       r.age += frameDt;
       const t = Math.min(1, r.age / 0.35);
-      r.mesh.position.set(p.pos.x, 0.1, p.pos.z);
+      const c = r.center ?? p.pos;
+      r.mesh.position.set(c.x, 0.1, c.z);
       r.mesh.scale.setScalar(Math.max(0.01, r.radius * t));
       r.material.opacity = 0.8 * (1 - t);
       if (t >= 1) {
@@ -307,6 +368,29 @@ export class GameView {
         r.material.dispose();
         this.rings.splice(i, 1);
       }
+    }
+
+    const st = world.stage;
+    this.portal.visible = !!st.portal;
+    if (st.portal) {
+      this.portal.position.set(st.portal.x, 0, st.portal.z);
+      const ring = this.portal.getObjectByName('ring');
+      if (ring) ring.rotation.y = world.time * 1.5;
+      const col = st.isFinal ? 0xffd34d : 0x6ff3ff;
+      this.portalRingMat.color.setHex(col);
+      this.portalRingMat.emissive.setHex(st.isFinal ? 0x8a6a00 : 0x1aa6c4);
+      this.portalDiscMat.color.setHex(col);
+      this.portalDiscMat.opacity = 0.25 + 0.15 * Math.sin(world.time * 4);
+    }
+    let goal: { x: number; z: number } | null = st.portal;
+    if (!goal && st.bossId !== null) goal = world.enemies.find((e) => e.id === st.bossId)?.pos ?? null;
+    const gd = goal ? Math.hypot(goal.x - p.pos.x, goal.z - p.pos.z) : 0;
+    this.guide.visible = !!goal && gd > 4 && world.phase === 'playing';
+    if (goal && this.guide.visible) {
+      const ang = Math.atan2(goal.z - p.pos.z, goal.x - p.pos.x);
+      this.guide.position.set(p.pos.x + Math.cos(ang) * 2.2, 0.15, p.pos.z + Math.sin(ang) * 2.2);
+      this.guide.rotation.set(-Math.PI / 2, 0, -ang - Math.PI / 2);
+      this.guideMat.color.setHex(st.portal ? (st.isFinal ? 0xffd34d : 0x6ff3ff) : 0xff5555);
     }
 
     const target = new THREE.Vector3(p.pos.x, 0, p.pos.z);
