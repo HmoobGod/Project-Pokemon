@@ -184,6 +184,10 @@ try {
     }
     // release movement keys before slow (software-WebGL) screenshots so the bot never walks blind
     async function shot(name) { await setKeys(new Set()); await sp.screenshot({ path: join(out, name) }); }
+    // Two scenarios on the same build: 'interactables' (minimap/Unown/Challenge/Final Swarm/pause in zone 1) and
+    // 'loop' (wake each Guardian right away, wait at the open zone-1 portal through the Final Swarm, then zones 2-3,
+    // Shrine, Legendary victory, exit portal). Splitting keeps the scripted bot out of long crowded Guardian fights.
+    let mode = 'interactables';
     function steer(x) {
       const p = x.player; let mx = 0, mz = 0, nearest = Infinity;
       for (const [ex, ez, isBoss] of x.enemyPositions) {
@@ -198,11 +202,12 @@ try {
       const m = x.map;
       // zone 1: wait at the open portal until the Final Swarm has started (proves an open portal never auto-exits)
       let goal = m.portal && (m.index > 0 || m.finalSwarm) ? m.portal : null;
-      // zone 1 first: fill the Unown circle, then start the Challenge altar (only in zone 1)
-      if (!goal && m.kind === 'zone' && m.index === 0 && x.unown && x.unown.state !== 'spent') goal = { x: x.unown.x, z: x.unown.z, strong: true };
-      else if (!goal && m.kind === 'zone' && m.index === 0 && x.challenge && x.challenge.state === 'idle') goal = { x: x.challenge.x, z: x.challenge.z, strong: true };
+      if (mode === 'interactables') {
+        if (x.unown && x.unown.state !== 'spent') goal = { x: x.unown.x, z: x.unown.z, strong: true };
+        else if (x.challenge && x.challenge.state === 'idle') goal = { x: x.challenge.x, z: x.challenge.z, strong: true };
+      }
       // zone 1: hold off the altar until the Final Swarm has started, to cover overtime combat
-      if (!goal && m.kind === 'zone' && m.state === 'explore' && m.altar && (m.index > 0 || x.challenge.state === 'won' || x.challenge.state === 'failed')) goal = { x: m.altar.x, z: m.altar.z };
+      if (!goal && mode === 'loop' && m.kind === 'zone' && m.state === 'explore' && m.altar) goal = { x: m.altar.x, z: m.altar.z };
       if (!goal && x.boss && x.boss.ai !== 'slam' && Math.hypot(x.boss.x - p.x, x.boss.z - p.z) > 8.5) goal = { x: x.boss.x, z: x.boss.z, boss: true };
       if (!goal && nearest > 4) { let best = 12; for (const [ox, oz] of x.orbPositions) { const d = Math.hypot(ox - p.x, oz - p.z); if (d < best) { best = d; goal = { x: ox, z: oz }; } } }
 
@@ -214,7 +219,11 @@ try {
     }
     let done = null;
     const seen = new Set();
-    for (let attempt = 1; attempt <= 8 && !done; attempt++) {
+    for (let attempt = 1; attempt <= 10 && !done; attempt++) {
+      if (mode === 'interactables' && ['blessing', 'chalwon0', 'swarm0', 'pauseclock'].every((k) => seen.has(k))) {
+        mode = 'loop';
+        note('  interactables scenario complete -> starting full-loop scenario');
+      }
       await sp.goto(`${origin}/index.html?preset=short&seed=${4000 + attempt}`);
       await sp.waitForFunction(() => !!window.__arenaSlice);
       if (!(await sp.isVisible('#preset-tag'))) fail('short preset is not labelled on screen');
@@ -237,12 +246,18 @@ try {
         await sp.click('#resume-btn');
         note(`minimap drawn (${mini.painted}/${mini.w * mini.w} px painted); Tab and minimap tap open the full map in the pause menu (zone clock frozen); full map ${full.painted}/${full.w * full.w} px`);
       }
-      const tStart = Date.now();
+      let tStart = Date.now();
       let bossHpSeen = null;
       let pausedChecked = seen.has('pauseclock');
       for (;;) {
         const x = await ssnap();
+        if (mode === 'interactables' && ['blessing', 'chalwon0', 'swarm0', 'pauseclock'].every((k) => seen.has(k))) { await setKeys(new Set()); break; }
+        if (mode === 'loop' && x.map.kind === 'zone' && x.map.index === 0 && x.map.finalSwarm && x.map.portal && !seen.has('swarmportal')) {
+          seen.add('swarmportal');
+          note(`  Final Swarm reached with the zone-1 portal OPEN: still in zone 1 (no auto-exit), zone state=${x.map.state}`);
+        }
         const tag = `${x.map.kind}${x.map.index + 1}:${x.map.state}`;
+        if (!seen.has(`${attempt}:${tag}`)) { seen.add(`${attempt}:${tag}`); tStart = Date.now(); } // progress resets the stall timer
         if (!seen.has(tag)) {
           seen.add(tag);
           note(`  attempt ${attempt}: ${x.map.label} state=${x.map.state} zoneClock=${x.map.zoneTime.toFixed(1)}s swarm=${x.map.finalSwarm} run t=${x.time.toFixed(1)}s`);
@@ -284,56 +299,66 @@ try {
           const y = await ssnap();
           if (y.blessings.length !== 1 || y.unown.state !== 'spent' || JSON.stringify({ ...y.player, x: 0, z: 0 }) !== JSON.stringify({ ...JSON.parse(before), x: 0, z: 0 })) fail(`blessing pick wrong: ${JSON.stringify(y.blessings)} ${y.unown.state}`);
           seen.add('blessing');
-          note(`  Unown circle filled at zone clock ${x.map.zoneTime.toFixed(1)}s -> provisional blessing "${y.blessings[0]}" recorded, no stat change, altar spent`);
+          if (JSON.stringify(x.blessingChoices) !== '[1,2,3,4]' || y.blessings[0].applied !== false) fail(`blessing tiers wrong: ${JSON.stringify(x.blessingChoices)} ${JSON.stringify(y.blessings)}`);
+          note(`  Unown circle filled at zone clock ${x.map.zoneTime.toFixed(1)}s -> tiers ${JSON.stringify(x.blessingChoices)} offered; picked tier ${y.blessings[0].tier} (stat/amount pending evidence, applied=false, no stat change); altar spent`);
           continue;
         }
-        if (x.challenge && x.challenge.state === 'active' && !seen.has(`chal${x.map.index}`)) {
+        if (mode === 'interactables' && x.challenge && x.challenge.state === 'active' && !seen.has(`chal${x.map.index}`)) {
           seen.add(`chal${x.map.index}`);
           const species = new Set(x.challengeEnemies);
           if (x.challengeEnemies.length !== x.challenge.total || species.size !== 1) fail(`challenge wave wrong: ${JSON.stringify(x.challengeEnemies)}`);
           await shot('07d-challenge-wave.png');
           note(`  Challenge started: ${x.challenge.total} x ${[...species][0]} (one species)`);
         }
-        if (x.challenge && x.challenge.state === 'won' && !seen.has(`chalwon${x.map.index}`)) {
+        if (mode === 'interactables' && x.challenge && x.challenge.state === 'won' && !seen.has(`chalwon${x.map.index}`)) {
           seen.add(`chalwon${x.map.index}`);
           note(`  Challenge WON in ${x.map.label}: ${x.challenge.total}/${x.challenge.total} defeated by real combat; no item granted (Great Ball pending)`);
         }
         if (x.phase === 'levelup') { await setKeys(new Set()); await sp.keyboard.press('Digit1'); continue; }
-        if (x.phase === 'shrine-cleared') { done = x; break; }
+        if (x.victory && !seen.has('victoryrec')) {
+          seen.add('victoryrec');
+          if (x.phase !== 'playing' || x.result !== null || !x.map.portal) fail(`after Legendary defeat expected playing + exit portal, got ${x.phase} ${JSON.stringify(x.map.portal)}`);
+          await shot('13a-victory-exit-portal.png');
+          note(`  VICTORY recorded once at Legendary defeat (run t=${x.victory.time.toFixed(1)}s); exit portal open, run still active until exit`);
+        }
+        if (x.phase === 'victory') { done = x; break; }
         if (x.phase === 'defeated') { await setKeys(new Set()); note(`  attempt ${attempt}: defeated in ${tag} (retrying with a new run)`); break; }
-        if (x.map.action && !(x.map.action === 'start-challenge' && x.map.index > 0) && !(x.map.action === 'enter-portal' && x.map.index === 0 && !x.map.finalSwarm)) {
+        if (x.map.action && !(x.map.action === 'start-challenge' && (mode === 'loop' || x.map.index > 0)) && !(x.map.action === 'wake-guardian' && mode === 'interactables') && !(x.map.action === 'enter-portal' && x.map.index === 0 && !x.map.finalSwarm)) {
           await setKeys(new Set());
           const btn = await sp.getAttribute('#action-btn', 'data-action');
           if (!(await sp.isVisible('#action-btn')) || btn !== x.map.action) fail(`action button missing/wrong: ${btn} vs ${x.map.action}`);
           if (x.map.action === 'wake-guardian' && !seen.has(`altarshot${x.map.index}`)) { seen.add(`altarshot${x.map.index}`); await shot(`08-zone${x.map.index + 1}-altar-button.png`); }
           if (x.map.action === 'enter-portal' && x.map.index === 2) await shot('12-portal-to-shrine-button.png');
+          if (x.map.action === 'exit-stage') { await shot('13b-exit-stage-button.png'); seen.add('exitclick'); }
           if (x.map.action === 'start-challenge' && !seen.has('chalbtn')) { seen.add('chalbtn'); await shot('07c2-challenge-button.png'); }
           await sp.click('#action-btn'); // the explicit action
           continue;
         }
         await setKeys(steer(x));
         // a scripted bot can stalemate a crowded Guardian fight: give up on this attempt and start a fresh run
-        if (Date.now() - tStart > 150000) { await setKeys(new Set()); note(`  attempt ${attempt}: no progress in 150 s (${tag}), retrying with a new run`); break; }
+        if (Date.now() - tStart > 150000) { await setKeys(new Set()); note(`  attempt ${attempt}: no progress for 150 s in ${tag}, retrying with a new run`); break; }
         await sp.waitForTimeout(30);
       }
     }
     await setKeys(new Set());
-    if (!done) fail('bot did not clear the Shrine in 8 short-preset runs');
-    for (const t of ['zone1:explore', 'zone1:guardian', 'zone1:portal', 'zone2:explore', 'zone2:guardian', 'zone2:portal', 'zone3:explore', 'zone3:guardian', 'zone3:portal', 'shrine4:intro', 'shrine4:legendary']) if (!seen.has(t)) fail(`state ${t} never observed`);
+    if (!done) fail(`bot did not win and exit within 10 short-preset runs (mode=${mode})`);
+    if (!seen.has('swarmportal')) fail('Final Swarm with an open portal never observed');
+    for (const t of ['zone1:explore', 'zone1:guardian', 'zone1:portal', 'zone2:explore', 'zone2:guardian', 'zone2:portal', 'zone3:explore', 'zone3:guardian', 'zone3:portal', 'shrine4:intro', 'shrine4:legendary', 'shrine4:cleared']) if (!seen.has(t)) fail(`state ${t} never observed`);
     if (!seen.has('swarm0')) fail('Final Swarm never observed');
     if (!seen.has('blessing')) fail('Unown blessing never observed');
     if (!seen.has('chal0') || !seen.has('chalwon0')) fail('Challenge wave start/win not observed in zone 1');
     for (const k of ['dmgzone0', 'dmgzone1', 'dmgzone2', 'dmgshrine3']) if (!seen.has(k)) fail(`boss damage not observed: ${k}`);
     const title = await sp.textContent('#result-title');
     const summary = await sp.textContent('#result-summary');
-    if (title !== 'Legendary defeated' || done.result.outcome !== 'shrine-cleared' || !summary.includes('NOT recorded as a completed run')) fail(`shrine result wrong: ${title} ${JSON.stringify(done.result)}`);
+    if (title !== 'Victory!' || done.result.outcome !== 'victory' || !done.result.exitedViaPortal || !seen.has('exitclick') || !summary.includes('left through the exit portal')) fail(`victory/exit result wrong: ${title} ${JSON.stringify(done.result)}`);
+    if (done.result.victoryTime === null || done.result.victoryTime > done.result.time || !seen.has('victoryrec')) fail('victory not recorded at the Legendary defeat');
     if (done.result.zonesCleared !== 3 || done.result.guardiansDefeated !== 3 || !done.result.legendaryDefeated) fail(`counts wrong: ${JSON.stringify(done.result)}`);
-    await shot('13-shrine-result.png');
-    note(`SHRINE: Legendary defeated at run t=${done.time.toFixed(1)}s -> outcome=${done.result.outcome} (NOT victory; prototype finale) zones=${done.result.zonesCleared} guardians=${done.result.guardiansDefeated} swarms=${done.result.finalSwarmsReached} kills=${done.result.kills} level=${done.result.level}`);
+    await shot('13-victory-result.png');
+    note(`VICTORY: Legendary defeated at ${done.result.victoryTime.toFixed(1)}s (single record) -> exit portal taken at ${done.result.time.toFixed(1)}s -> outcome=victory exitedViaPortal=true zones=${done.result.zonesCleared} guardians=${done.result.guardiansDefeated} blessings=${JSON.stringify(done.result.blessings)} kills=${done.result.kills}`);
     await sp.keyboard.press('KeyR');
     const r = await sp.waitForFunction(() => { const x = window.__arenaSlice.snapshot(); return x.phase === 'playing' && x.map.kind === 'zone' && x.map.index === 0 && x.map.state === 'explore' && x.result === null ? x : null; }, null, { timeout: 3000 });
     await r.dispose();
-    note('restart after shrine -> fresh Zone 1');
+    note('restart after victory -> fresh Zone 1');
     await sp.close();
   }
 

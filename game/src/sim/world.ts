@@ -11,8 +11,9 @@
  *   Only the Guardian's real HP-zero defeat opens the portal; entering it is another explicit action.
  *   The zone-3 portal leads to the Shrine, where the map's Legendary is fought.
  *
- * The Shrine finale's exact win/exit rules are NOT confirmed by the guide, so defeating the Legendary ends
- * the run as 'shrine-cleared' (a prototype outcome) — this code never produces a completed 'victory'.
+ * OWNER RULE (2026-11-18): defeating the final Legendary IS the run victory; the player then exits the stage
+ * through the portal. Victory is recorded exactly once, at the Legendary's real HP-zero defeat; the exit
+ * portal only ends the stage and never records a second victory or any credit.
  * Save-and-quit is not implemented (no safe durable saves yet). No currency, rewards or unlocks exist.
  */
 import { createRng, randRange, type Rng } from './rng.ts';
@@ -32,10 +33,12 @@ import {
   SPAWN,
   STRIKE_GRACE,
   UNOWN,
-  PROVISIONAL_BLESSINGS,
+  BLESSING_TIERS,
+  blessingIsEvidenced,
   spawnInterval,
   xpToNext,
-  type BlessingId,
+  type BlessingStat,
+  type BlessingTier,
   type EnemyKind,
   type Obstacle,
   type RunRules,
@@ -48,9 +51,16 @@ export interface Vec2 {
   z: number;
 }
 
-export type Phase = 'playing' | 'levelup' | 'blessing' | 'defeated' | 'quit' | 'shrine-cleared';
-/** 'victory' is intentionally absent until the Shrine finale's real rules are confirmed. */
-export type Outcome = 'defeat' | 'quit' | 'shrine-cleared';
+export type Phase = 'playing' | 'levelup' | 'blessing' | 'defeated' | 'quit' | 'victory';
+export type Outcome = 'defeat' | 'quit' | 'victory';
+
+/** A picked Unown blessing. `applied` is true only when that tier had evidenced stat + amount + source. */
+export interface BlessingRecord {
+  tier: BlessingTier;
+  stat: BlessingStat | null;
+  amount: number | null;
+  applied: boolean;
+}
 
 export interface PlayerState {
   pos: Vec2;
@@ -153,7 +163,7 @@ export interface MapProgress {
   introTimer: number;
 }
 
-export type ActionKind = 'wake-guardian' | 'start-challenge' | 'enter-portal';
+export type ActionKind = 'wake-guardian' | 'start-challenge' | 'enter-portal' | 'exit-stage';
 
 export type GameEvent =
   | { type: 'shot'; count: number }
@@ -167,7 +177,7 @@ export type GameEvent =
   | { type: 'pulse'; radius: number; hits: number }
   | { type: 'finalSwarm'; zone: number }
   | { type: 'unownCharged'; zone: number }
-  | { type: 'blessingChosen'; id: BlessingId }
+  | { type: 'blessingChosen'; tier: BlessingTier; applied: boolean }
   | { type: 'challengeStarted'; zone: number; species: string; total: number }
   | { type: 'challengeWon'; zone: number }
   | { type: 'challengeFailed'; zone: number; reason: 'defeat' | 'left-zone' }
@@ -182,7 +192,9 @@ export type GameEvent =
   | { type: 'legendaryDefeated'; id: number }
   | { type: 'defeated'; time: number; kills: number; level: number }
   | { type: 'quit'; time: number }
-  | { type: 'shrineCleared'; time: number };
+  | { type: 'runVictory'; time: number }
+  | { type: 'exitPortalOpened'; pos: Vec2 }
+  | { type: 'stageExited'; time: number };
 
 export interface RunStats {
   kills: number;
@@ -208,8 +220,12 @@ export interface RunResult {
   finalSwarmsReached: number;
   challengesWon: number;
   challengesFailed: number;
-  /** run-only provisional blessings picked (no gameplay effect yet) */
-  blessings: BlessingId[];
+  /** run-only blessings picked (effects only where evidenced) */
+  blessings: BlessingRecord[];
+  /** run time at which the Legendary was defeated (the single victory moment); null if not won */
+  victoryTime: number | null;
+  /** true when the player left through the post-victory exit portal */
+  exitedViaPortal: boolean;
   kills: number;
   level: number;
 }
@@ -229,10 +245,12 @@ export interface World {
   spawnTimer: number;
   pendingLevelUps: number;
   choices: UpgradeId[] | null;
-  /** Unown blessing offer (phase 'blessing') */
-  blessingChoices: BlessingId[] | null;
-  /** run-only, provisional: recorded but has no gameplay effect until evidence exists */
-  blessings: BlessingId[];
+  /** Unown blessing offer (phase 'blessing'): the tiers on offer */
+  blessingChoices: BlessingTier[] | null;
+  /** run-only blessings picked */
+  blessings: BlessingRecord[];
+  /** set ONCE when the final Legendary is defeated */
+  victory: { time: number } | null;
   stats: RunStats;
   map: MapProgress;
   result: RunResult | null;
@@ -330,6 +348,7 @@ export function createWorld(seed: number, options: WorldOptions = {}): World {
     choices: null,
     blessingChoices: null,
     blessings: [],
+    victory: null,
     stats: { kills: 0, damageDealt: 0, damageTaken: 0, xpCollected: 0, guardiansDefeated: 0, zonesCleared: 0, legendaryDefeated: false, finalSwarmsReached: 0, challengesWon: 0, challengesFailed: 0 },
     map: zoneMap(rules, 0),
     result: null,
@@ -346,10 +365,10 @@ export function mapLabel(map: MapProgress): string {
 }
 
 export function isRunOver(world: World): boolean {
-  return world.phase === 'defeated' || world.phase === 'quit' || world.phase === 'shrine-cleared';
+  return world.phase === 'defeated' || world.phase === 'quit' || world.phase === 'victory';
 }
 
-function endRun(world: World, outcome: Outcome): void {
+function endRun(world: World, outcome: Outcome, exitedViaPortal = false): void {
   world.phase = outcome === 'defeat' ? 'defeated' : outcome;
   world.choices = null;
   world.blessingChoices = null;
@@ -364,7 +383,9 @@ function endRun(world: World, outcome: Outcome): void {
     finalSwarmsReached: world.stats.finalSwarmsReached,
     challengesWon: world.stats.challengesWon,
     challengesFailed: world.stats.challengesFailed,
-    blessings: [...world.blessings],
+    blessings: world.blessings.map((b) => ({ ...b })),
+    victoryTime: world.victory ? world.victory.time : null,
+    exitedViaPortal,
     kills: world.stats.kills,
     level: world.player.level,
   };
@@ -444,23 +465,46 @@ function updateUnown(world: World, dt: number): void {
     u.charge = 1;
     u.state = 'choosing';
     world.phase = 'blessing';
-    world.blessingChoices = PROVISIONAL_BLESSINGS.map((b) => b.id);
+    // PROVISIONAL offer: one card per tier (how tiers are really offered is not established)
+    world.blessingChoices = [...BLESSING_TIERS];
     world.events.push({ type: 'unownCharged', zone: world.map.index + 1 });
   }
 }
 
-/** Pick one offered Unown blessing. Run-only and PROVISIONAL: it is recorded, with no gameplay effect. */
+/** Pick one offered Unown blessing tier. Applies a stat buff ONLY if that tier's row is evidenced. */
 export function chooseBlessing(world: World, index: number): boolean {
   if (world.phase !== 'blessing' || !world.blessingChoices) return false;
   if (!Number.isInteger(index) || index < 0 || index >= world.blessingChoices.length) return false;
-  const id = world.blessingChoices[index]!;
-  world.blessings.push(id);
+  const tier = world.blessingChoices[index]!;
+  const ev = world.rules.blessings.find((b) => b.tier === tier);
+  const applied = !!ev && blessingIsEvidenced(ev);
+  if (applied) applyBlessingStat(world.player, ev!.stat!, ev!.amount!);
+  world.blessings.push({ tier, stat: ev?.stat ?? null, amount: ev?.amount ?? null, applied });
   world.blessingChoices = null;
   if (world.map.unown) world.map.unown.state = 'spent';
   world.phase = 'playing';
-  world.events = [{ type: 'blessingChosen', id }];
+  world.events = [{ type: 'blessingChosen', tier, applied }];
   if (world.pendingLevelUps > 0) openLevelUp(world);
   return true;
+}
+
+/** Mechanical application of an evidenced buff (the amounts themselves must come from evidence). */
+export function applyBlessingStat(p: PlayerState, stat: BlessingStat, amount: number): void {
+  switch (stat) {
+    case 'damage':
+      p.damage += amount;
+      break;
+    case 'maxHp':
+      p.maxHp += amount;
+      p.hp = Math.min(p.maxHp, p.hp + amount);
+      break;
+    case 'attackSpeed':
+      p.attackCooldown = Math.max(0.05, p.attackCooldown / (1 + amount));
+      break;
+    case 'moveSpeed':
+      p.speed *= 1 + amount;
+      break;
+  }
 }
 
 function updateMapClock(world: World, dt: number): void {
@@ -662,7 +706,8 @@ function separateEnemies(world: World): void {
 
 export function damagePlayer(world: World, amount: number): boolean {
   const p = world.player;
-  if (world.phase !== 'playing' || p.invulnTimer > 0 || amount <= 0) return false;
+  // once the Legendary is defeated the run is won; nothing can turn it into a defeat
+  if (world.phase !== 'playing' || world.victory || p.invulnTimer > 0 || amount <= 0) return false;
   p.hp = Math.max(0, p.hp - amount);
   p.invulnTimer = PLAYER_BASE.invulnAfterHit;
   world.stats.damageTaken += amount;
@@ -795,13 +840,16 @@ function onEnemyKilled(world: World, e: Enemy): void {
     m.portal = { ...(m.altar?.pos ?? { x: 0, z: 0 }) };
     world.events.push({ type: 'guardianDefeated', id: e.id, zone: m.index + 1 });
     world.events.push({ type: 'portalOpened', zone: m.index + 1, pos: { ...m.portal }, toShrine: m.index === m.zoneCount - 1 });
-  } else if (m.kind === 'shrine' && e.kind === 'legendary' && m.state === 'legendary') {
+  } else if (m.kind === 'shrine' && e.kind === 'legendary' && m.state === 'legendary' && !world.victory) {
+    // OWNER RULE: this defeat IS the run victory — recorded exactly once, here.
     world.stats.legendaryDefeated = true;
+    world.victory = { time: world.time };
     m.state = 'cleared';
     m.bossId = null;
+    m.portal = { ...world.rules.shrine.exitPortal };
     world.events.push({ type: 'legendaryDefeated', id: e.id });
-    endRun(world, 'shrine-cleared');
-    world.events.push({ type: 'shrineCleared', time: world.time });
+    world.events.push({ type: 'runVictory', time: world.time });
+    world.events.push({ type: 'exitPortalOpened', pos: { ...m.portal } });
   }
 }
 
@@ -815,7 +863,7 @@ function within(world: World, pos: Vec2 | null | undefined, range: number): bool
 export function availableAction(world: World): ActionKind | null {
   if (world.phase !== 'playing') return null;
   const m = world.map;
-  if (m.kind !== 'zone') return null;
+  if (m.kind === 'shrine') return m.state === 'cleared' && world.victory && within(world, m.portal, PORTAL.activateRange) ? 'exit-stage' : null;
   if (m.state === 'explore' && m.altar?.state === 'dormant' && within(world, m.altar.pos, ALTAR.activateRange)) return 'wake-guardian';
   if (m.challenge?.state === 'idle' && within(world, m.challenge.pos, CHALLENGE.activateRange)) return 'start-challenge';
   if (m.state === 'portal' && within(world, m.portal, PORTAL.activateRange)) return 'enter-portal';
@@ -905,18 +953,36 @@ export function activatePortal(world: World): boolean {
   return true;
 }
 
+/**
+ * Leave the stage through the post-victory exit portal. Only possible after the Legendary's defeat and while
+ * standing in the portal. Ends the run with the ALREADY-recorded victory; it never records a second one.
+ */
+export function exitStage(world: World): boolean {
+  if (availableAction(world) !== 'exit-stage') return false;
+  world.events = [{ type: 'stageExited', time: world.time }];
+  endRun(world, 'victory', true);
+  return true;
+}
+
 /** Perform whatever the action button currently offers. */
 export function performAction(world: World): ActionKind | null {
   const a = availableAction(world);
   if (a === 'wake-guardian') return wakeGuardian(world) ? a : null;
   if (a === 'start-challenge') return startChallenge(world) ? a : null;
   if (a === 'enter-portal') return activatePortal(world) ? a : null;
+  if (a === 'exit-stage') return exitStage(world) ? a : null;
   return null;
 }
 
 /** Player chooses to abandon the run. Distinct from defeat and from the shrine outcome; grants nothing. */
 export function quitRun(world: World): boolean {
   if (isRunOver(world)) return false;
+  if (world.victory) {
+    // the run was already won at the Legendary's defeat; leaving early keeps that single victory
+    endRun(world, 'victory', false);
+    world.events = [{ type: 'quit', time: world.time }];
+    return true;
+  }
   endRun(world, 'quit');
   world.events = [{ type: 'quit', time: world.time }];
   return true;

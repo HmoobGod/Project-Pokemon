@@ -79,6 +79,8 @@ export interface ShrineDef {
   legendaryHp: number;
   /** seconds between arriving and the Legendary appearing */
   introDelay: number;
+  /** where the stage-exit portal opens after the Legendary's defeat (PROTOTYPE placement) */
+  exitPortal: { x: number; z: number };
 }
 
 /**
@@ -107,6 +109,8 @@ export interface RunRules {
   unownChargeSeconds: number;
   /** PLACEHOLDER: size of the Challenge altar's one-species wave (guide gives no number) */
   challengeWaveSize: number;
+  /** four-tier Unown blessing table; all-null until evidence is supplied */
+  blessings: readonly BlessingEvidence[];
 }
 
 const ring = (n: number, r: number, radius: number, phase = 0): Obstacle[] =>
@@ -165,7 +169,35 @@ export const ZONES: readonly ZoneDef[] = [
   },
 ];
 
-export const SHRINE: ShrineDef = { name: 'Shrine', ground: 0x6b5fa8, obstacles: ring(8, 20, 1.2), legendaryHp: 4000, introDelay: 3 };
+export const SHRINE: ShrineDef = { name: 'Shrine', ground: 0x6b5fa8, obstacles: ring(8, 20, 1.2), legendaryHp: 4000, introDelay: 3, exitPortal: { x: 0, z: 0 } };
+
+/**
+ * Unown blessings. Evidence: guide #11 ("pick a blessing") + OWNER RULE 2026-11-18: blessings are selectable
+ * STAT BUFFS organised in FOUR TIERS. NOT established: which stats, the amounts, how tiers are offered or
+ * sequenced, stacking, persistence. So every tier below has stat = null and amount = null, and a blessing
+ * changes the player ONLY when its tier row has a stat, an amount AND a cited source. Fill these rows from
+ * owner/authorised evidence; never guess numbers here.
+ */
+export type BlessingTier = 1 | 2 | 3 | 4;
+export const BLESSING_TIERS: readonly BlessingTier[] = [1, 2, 3, 4];
+
+/** Stats the simulation knows how to buff. This is an implementation capability, NOT evidence of which stats blessings use. */
+export type BlessingStat = 'damage' | 'attackSpeed' | 'moveSpeed' | 'maxHp';
+
+export interface BlessingEvidence {
+  tier: BlessingTier;
+  stat: BlessingStat | null;
+  /** damage / maxHp: flat add; attackSpeed / moveSpeed: fractional bonus (e.g. 0.1 = +10%). null = unknown */
+  amount: number | null;
+  /** where the stat/amount came from (owner message, authorised source). null = no evidence */
+  source: string | null;
+}
+
+export const BLESSING_EVIDENCE: readonly BlessingEvidence[] = BLESSING_TIERS.map((tier) => ({ tier, stat: null, amount: null, source: null }));
+
+export function blessingIsEvidenced(e: BlessingEvidence): boolean {
+  return e.stat !== null && e.amount !== null && Number.isFinite(e.amount) && e.amount > 0 && !!e.source;
+}
 
 export const FINAL_SWARM_PLACEHOLDER: FinalSwarmRules = { hpMulBase: 2, hpMulPerMinute: 0.5, damageMulBase: 1.5, damageMulPerMinute: 0.25, spawnIntervalMul: 0.6 };
 
@@ -178,6 +210,7 @@ export const NORMAL_RULES: RunRules = {
   enemyHpGrowthPerMinute: 0.15,
   unownChargeSeconds: 6,
   challengeWaveSize: 15,
+  blessings: BLESSING_EVIDENCE,
 };
 
 /**
@@ -195,6 +228,7 @@ export const SHORT_RULES: RunRules = {
   enemyHpGrowthPerMinute: 0,
   unownChargeSeconds: 3,
   challengeWaveSize: 6,
+  blessings: BLESSING_EVIDENCE,
 };
 
 /** While a guardian/legendary is awake or a portal is up, normal spawns slow down by this factor. */
@@ -206,17 +240,6 @@ export const UNOWN = { radius: 3.2 };
 /** Challenge wave spawns on a ring around its altar (placeholder geometry) */
 export const CHALLENGE = { activateRange: 2.6, spawnRingMin: 9, spawnRingMax: 13 };
 
-/**
- * Unown blessings: the guide (#11) says you "pick a blessing" but documents NO blessing effects.
- * These are PROVISIONAL slots with NO gameplay effect until evidence is supplied. Do not add effects here
- * without owner-provided source.
- */
-export const PROVISIONAL_BLESSINGS = [
-  { id: 'unown-blessing-a', label: 'Unown Blessing A' },
-  { id: 'unown-blessing-b', label: 'Unown Blessing B' },
-  { id: 'unown-blessing-c', label: 'Unown Blessing C' },
-] as const;
-export type BlessingId = (typeof PROVISIONAL_BLESSINGS)[number]['id'];
 export const PORTAL = { activateRange: 2.2 };
 
 /** Extra distance a strike still lands at, so stepping away during the wind-up dodges it. */

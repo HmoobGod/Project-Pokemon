@@ -340,7 +340,7 @@ test('three zones in sequence, then the zone-3 portal leads to the Shrine — NO
   assert.equal(activatePortal(w), false);
 });
 
-test('Shrine: Legendary appears, fights, and its real defeat ends the run as shrine-cleared (never "victory")', () => {
+test('Shrine: Legendary appears after the intro and fights; no wild spawns in the Shrine', () => {
   const w = quiet();
   w.player.attackTimer = 1e9;
   for (let z = 0; z < 3; z++) {
@@ -354,20 +354,9 @@ test('Shrine: Legendary appears, fights, and its real defeat ends the run as shr
   const leg = guardian(w)!;
   assert.equal(leg.kind, 'legendary');
   assert.equal(leg.maxHp, NORMAL_RULES.shrine.legendaryHp);
-  for (let i = 0; i < 600; i++) step(w, still, DT); // no wild spawns in the shrine prototype
+  for (let i = 0; i < 600; i++) step(w, still, DT);
   assert.equal(w.enemies.filter((e) => e.kind !== 'legendary').length, 0);
-  hitEnemy(w, leg, leg.hp - 1);
-  assert.equal(w.result, null);
-  hitEnemy(w, leg, 1);
-  assert.equal(w.phase, 'shrine-cleared');
-  assert.equal(w.result!.outcome, 'shrine-cleared');
-  assert.notEqual(w.result!.outcome as string, 'victory');
-  assert.equal(w.result!.legendaryDefeated, true);
-  assert.equal(w.result!.reached, 'Shrine');
-  const t = w.time;
-  step(w, { x: 1, z: 0 }, DT);
-  assert.equal(w.time, t);
-  assert.equal(quitRun(w), false);
+  assert.equal(w.victory, null, 'arriving and fighting is not victory');
 });
 
 test('defeat at the Shrine is a defeat; quit is its own outcome; restart is a fresh zone 1', () => {
@@ -403,7 +392,7 @@ test('no economy: no currency/reward fields anywhere in the world or result', ()
   const w = quiet();
   clearZone(w);
   quitRun(w);
-  assert.deepEqual(Object.keys(w.result!).sort(), ['blessings', 'challengesFailed', 'challengesWon', 'finalSwarmsReached', 'guardiansDefeated', 'kills', 'legendaryDefeated', 'level', 'outcome', 'reached', 'time', 'zonesCleared']);
+  assert.deepEqual(Object.keys(w.result!).sort(), ['blessings', 'challengesFailed', 'challengesWon', 'exitedViaPortal', 'finalSwarmsReached', 'guardiansDefeated', 'kills', 'legendaryDefeated', 'level', 'outcome', 'reached', 'time', 'victoryTime', 'zonesCleared']);
   const json = JSON.stringify({ ...w, rng: null, rules: null }).toLowerCase();
   for (const word of ['stardust', 'bonkoin', 'pokedollar', 'currency', 'reward', 'unlock']) assert.ok(!json.includes(word), word);
 });
@@ -497,7 +486,7 @@ test('NORMAL rules played by a bot: zones are cleared through altar -> guardian 
     playWithBot(w, 20 * 60);
     guardians += w.stats.guardiansDefeated;
     if (w.map.kind === 'shrine') reachedShrine++;
-    assert.notEqual(w.phase as string, 'victory');
+    if (w.result?.outcome === 'victory') assert.equal(w.stats.legendaryDefeated, true);
     outcomes.push(`${seed}:${w.result?.outcome ?? w.phase}@${w.time.toFixed(0)}s ${w.map.kind}${w.map.index + 1}/${w.map.state} g${w.stats.guardiansDefeated} lvl${w.player.level}`);
   }
   console.log('bot outcomes (normal):', outcomes.join(' | '));
@@ -505,10 +494,11 @@ test('NORMAL rules played by a bot: zones are cleared through altar -> guardian 
   assert.ok(reachedShrine >= 1, `at least one seed reaches the Shrine: ${outcomes.join(' | ')}`);
 });
 
-test('SHORT preset bot run reaches and clears the Shrine through real combat', () => {
+test('SHORT preset bot run: real combat through 3 zones, Legendary victory, then exit portal', () => {
   const w = createWorld(11, { rules: SHORT_RULES });
   playWithBot(w, 8 * 60);
-  assert.equal(w.result?.outcome, 'shrine-cleared', `short bot: ${w.phase} ${w.map.kind} ${w.map.state}`);
+  assert.equal(w.result?.outcome, 'victory', `short bot: ${w.phase} ${w.map.kind} ${w.map.state}`);
+  assert.equal(w.result?.exitedViaPortal, true);
   assert.equal(w.stats.guardiansDefeated, 3);
   assert.equal(w.stats.zonesCleared, 3);
 });

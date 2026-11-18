@@ -64,3 +64,6 @@ button.link { background: none; border: none; color: #6ff3ff; text-decoration: u
 .interact-status.hidden { display: none; }
 .portal-btn.challenge { background: #c46a12; box-shadow: 0 0 20px #ff9b3d; }
 @media (max-width: 500px) { .minimap { width: 92px; height: 92px; top: calc(env(safe-area-inset-top, 0px) + 150px); } }
+
+.portal-btn.exit { background: #c48a00; box-shadow: 0 0 24px #ffd34d; }
+@media (min-width: 700px) { #blessing-choices .choice { min-width: 0; } }

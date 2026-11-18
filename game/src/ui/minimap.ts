@@ -29,7 +29,7 @@ export function mapMarkers(world: World, includeEnemies = true): MapMarker[] {
   if (m.unown) out.push({ kind: 'unown', x: m.unown.pos.x, z: m.unown.pos.z, state: m.unown.state, pin: m.unown.state !== 'spent' });
   if (m.challenge) out.push({ kind: 'challenge', x: m.challenge.pos.x, z: m.challenge.pos.z, state: m.challenge.state, pin: m.challenge.state === 'idle' });
   if (m.altar) out.push({ kind: 'guardian-altar', x: m.altar.pos.x, z: m.altar.pos.z, state: m.altar.state, pin: m.altar.state === 'dormant' });
-  if (m.portal) out.push({ kind: 'portal', x: m.portal.x, z: m.portal.z, state: m.index === m.zoneCount - 1 ? 'to-shrine' : 'to-zone', pin: true });
+  if (m.portal) out.push({ kind: 'portal', x: m.portal.x, z: m.portal.z, state: m.kind === 'shrine' ? 'exit' : m.index === m.zoneCount - 1 ? 'to-shrine' : 'to-zone', pin: true });
   const boss = world.enemies.find((e) => e.id === m.bossId);
   if (boss) out.push({ kind: 'boss', x: boss.pos.x, z: boss.pos.z, state: boss.kind, pin: true });
   out.push({ kind: 'player', x: world.player.pos.x, z: world.player.pos.z, pin: true });
@@ -80,7 +80,7 @@ export const MARKER_STYLE: Record<MarkerKind, { color: string; r: number }> = {
 
 export function markerColor(mk: MapMarker): string {
   if (mk.kind === 'guardian-altar') return mk.state === 'dormant' ? '#3ddc84' : mk.state === 'awakened' ? '#ff4040' : '#777777';
-  if (mk.kind === 'portal') return mk.state === 'to-shrine' ? '#b48cff' : '#6ff3ff';
+  if (mk.kind === 'portal') return mk.state === 'exit' ? '#ffd34d' : mk.state === 'to-shrine' ? '#b48cff' : '#6ff3ff';
   if (mk.kind === 'unown') return mk.state === 'spent' ? '#777777' : '#5aa9ff';
   if (mk.kind === 'challenge') return mk.state === 'active' ? '#ff4040' : mk.state === 'idle' ? '#ff9b3d' : '#777777';
   return MARKER_STYLE[mk.kind].color;

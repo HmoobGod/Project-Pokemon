@@ -522,15 +522,16 @@ export class GameView {
       this.portal.position.set(st.portal.x, 0, st.portal.z);
       const ring = this.portal.getObjectByName('ring');
       if (ring) ring.rotation.y = world.time * 1.5;
-      const col = toShrine ? 0xb48cff : 0x6ff3ff;
+      const exit = st.kind === 'shrine';
+      const col = exit ? 0xffd34d : toShrine ? 0xb48cff : 0x6ff3ff;
       this.portalRingMat.color.setHex(col);
-      this.portalRingMat.emissive.setHex(toShrine ? 0x5a2fd0 : 0x1aa6c4);
+      this.portalRingMat.emissive.setHex(exit ? 0x8a6a00 : toShrine ? 0x5a2fd0 : 0x1aa6c4);
       this.portalDiscMat.color.setHex(col);
       this.portalDiscMat.opacity = 0.25 + 0.15 * Math.sin(world.time * 4);
     }
     // Arrow: portal if open, else the awake guardian/legendary, else the dormant altar.
     let goal: { x: number; z: number } | null = st.portal;
-    let goalColor = toShrine ? 0xb48cff : 0x6ff3ff;
+    let goalColor = st.kind === 'shrine' ? 0xffd34d : toShrine ? 0xb48cff : 0x6ff3ff;
     if (!goal && st.bossId !== null) {
       goal = world.enemies.find((e) => e.id === st.bossId)?.pos ?? null;
       goalColor = 0xff5555;

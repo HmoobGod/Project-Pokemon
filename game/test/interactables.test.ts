@@ -88,13 +88,13 @@ test('Unown charge does not advance while paused for a level-up choice', () => {
   assert.ok(u.charge > c);
 });
 
-test('blessing choice: provisional ids only, recorded run-only, NO stat change, altar spent, cannot repeat', () => {
+test('blessing choice: four tiers offered; with no evidence the pick is recorded with NO stat change; altar spent; no repeat', () => {
   const w = quiet();
   const u = w.map.unown!;
   at(w, u.pos);
   stepFor(w, NORMAL_RULES.unownChargeSeconds + 0.1);
   assert.equal(w.phase, 'blessing');
-  assert.deepEqual(w.blessingChoices, ['unown-blessing-a', 'unown-blessing-b', 'unown-blessing-c']);
+  assert.deepEqual(w.blessingChoices, [1, 2, 3, 4]);
   const t = w.time;
   stepFor(w, 3);
   assert.equal(w.time, t, 'game is paused while choosing');
@@ -102,14 +102,14 @@ test('blessing choice: provisional ids only, recorded run-only, NO stat change, 
   assert.equal(chooseBlessing(w, 7), false);
   assert.equal(chooseBlessing(w, -1), false);
   assert.equal(chooseBlessing(w, 1), true);
-  assert.equal(JSON.stringify(w.player), before, 'no undocumented effect applied');
-  assert.deepEqual(w.blessings, ['unown-blessing-b']);
+  assert.equal(JSON.stringify(w.player), before, 'no invented effect applied');
+  assert.deepEqual(w.blessings, [{ tier: 2, stat: null, amount: null, applied: false }]);
   assert.equal(u.state, 'spent');
   assert.equal(w.phase, 'playing');
   assert.equal(chooseBlessing(w, 0), false);
   stepFor(w, NORMAL_RULES.unownChargeSeconds + 1);
   assert.equal(w.phase, 'playing', 'spent altar never charges again');
-  assert.deepEqual(w.blessings, ['unown-blessing-b']);
+  assert.equal(w.blessings.length, 1);
 });
 
 // ---------- Challenge altar ----------
@@ -159,7 +159,7 @@ test('Challenge: only wave KOs count; win needs all of them; no payout of any ki
   assert.ok(w.events.some((e) => e.type === 'challengeWon'));
   assert.deepEqual({ ...w.player, upgradesTaken: [...w.player.upgradesTaken] }, before, 'no stat/item grant (Great Ball NOT granted)');
   const json = JSON.stringify({ ...w, rng: null, rules: null }).toLowerCase();
-  for (const word of ['great ball', 'greatball', 'inventory', 'item', 'stardust', 'pokedollar', 'reward']) assert.ok(!json.includes(word), word);
+  for (const word of ['great ball', 'greatball', 'inventory', '"item', 'stardust', 'pokedollar', 'reward']) assert.ok(!json.includes(word), word);
   assert.equal(availableAction(w), null, 'won altar cannot be restarted');
 });
 

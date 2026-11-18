@@ -3,7 +3,7 @@ import { GameView } from './render/scene.ts';
 import { createControls } from './input/controls.ts';
 import { SoundFx } from './audio.ts';
 import { availableAction, chooseBlessing, chooseUpgrade, createWorld, distanceToPortal, isRunOver, mapLabel, overtimeSeconds, performAction, quitRun, step, type World } from './sim/world.ts';
-import { PROVISIONAL_BLESSINGS, SHORT_RULES, xpToNext } from './sim/config.ts';
+import { SHORT_RULES, blessingIsEvidenced, xpToNext } from './sim/config.ts';
 import { drawMap } from './ui/minimap.ts';
 import { UPGRADES } from './sim/upgrades.ts';
 import { browserLoaderDeps, loadPrivateSprites, type SpriteLoadResult } from './sprites/loader.ts';
@@ -140,12 +140,12 @@ function syncOverlays(): void {
   if (world.phase !== 'levelup') choicesEl.innerHTML = '';
   const r = world.result;
   if (r) {
-    const title = r.outcome === 'shrine-cleared' ? 'Legendary defeated' : r.outcome === 'quit' ? 'Run abandoned' : 'Defeated';
+    const title = r.outcome === 'victory' ? 'Victory!' : r.outcome === 'quit' ? 'Run abandoned' : 'Defeated';
     $('result-title').textContent = title;
     resultOverlay.dataset.outcome = r.outcome;
     const lead =
-      r.outcome === 'shrine-cleared'
-        ? 'You beat the Shrine Legendary. The Shrine finale is still a PROTOTYPE (its real win/exit rules are not confirmed), so this is NOT recorded as a completed run.'
+      r.outcome === 'victory'
+        ? `Run complete: you defeated the Legendary at ${formatTime(r.victoryTime ?? r.time)}${r.exitedViaPortal ? ' and left through the exit portal' : ' (you left before taking the exit portal; the victory still counts once)'}.`
         : r.outcome === 'quit'
           ? 'You quit the run.'
           : 'You were knocked out.';
@@ -157,13 +157,16 @@ function syncOverlays(): void {
 
 function renderBlessings(): void {
   blessingChoicesEl.innerHTML = '';
-  (world.blessingChoices ?? []).forEach((id, i) => {
-    const def = PROVISIONAL_BLESSINGS.find((b) => b.id === id);
+  (world.blessingChoices ?? []).forEach((tier, i) => {
+    const ev = world.rules.blessings.find((b) => b.tier === tier);
+    const ok = !!ev && blessingIsEvidenced(ev);
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'choice';
-    b.dataset.blessing = id;
-    b.innerHTML = `<b>${i + 1}. ${def?.label ?? id}</b>Effect: pending evidence (none yet)`;
+    b.dataset.blessing = String(tier);
+    b.innerHTML = ok
+      ? `<b>${i + 1}. Tier ${tier} stat buff</b>${ev!.stat} +${ev!.amount}`
+      : `<b>${i + 1}. Tier ${tier} stat buff</b>Stat &amp; amount pending evidence (no effect yet)`;
     b.addEventListener('click', () => pickBlessing(i));
     blessingChoicesEl.appendChild(b);
   });
@@ -227,6 +230,8 @@ function handleEvents(): void {
       case 'zoneTransition': sfx.play('portal'); break;
       case 'shrineEntered': sfx.play('portal'); break;
       case 'legendaryDefeated': sfx.play('victory'); break;
+      case 'exitPortalOpened': sfx.play('portal'); break;
+      case 'stageExited': sfx.play('portal'); break;
       default: break;
     }
   }
@@ -258,9 +263,10 @@ function updateHud(): void {
   } else {
     zoneClock.textContent = 'Shrine';
     zoneClock.classList.remove('swarm');
-    objectiveText.textContent = m.state === 'intro' ? 'The Legendary approaches…' : 'Defeat the Legendary';
+    objectiveText.textContent =
+      m.state === 'intro' ? 'The Legendary approaches…' : m.state === 'cleared' ? 'VICTORY! Run complete — exit the stage through the portal' : 'Defeat the Legendary (defeating it wins the run)';
   }
-  $('shrine-tag').classList.toggle('hidden', m.kind !== 'shrine');
+  $('shrine-tag').classList.toggle('hidden', true);
   bossBar.classList.toggle('hidden', !boss);
   if (boss) {
     bossFill.style.width = `${(100 * boss.hp) / boss.maxHp}%`;
@@ -272,7 +278,8 @@ function updateHud(): void {
   actionBtn.classList.toggle('challenge', act === 'start-challenge');
   actionBtn.classList.toggle('shrine', act === 'enter-portal' && m.index === m.zoneCount - 1);
   actionBtn.dataset.action = act ?? '';
-  actionBtn.textContent = act === 'wake-guardian' ? 'Wake Guardian' : act === 'start-challenge' ? 'Start Challenge' : act === 'enter-portal' ? (m.index === m.zoneCount - 1 ? 'Enter portal to Shrine' : 'Enter portal') : '';
+  actionBtn.classList.toggle('exit', act === 'exit-stage');
+  actionBtn.textContent = act === 'exit-stage' ? 'Exit stage' : act === 'wake-guardian' ? 'Wake Guardian' : act === 'start-challenge' ? 'Start Challenge' : act === 'enter-portal' ? (m.index === m.zoneCount - 1 ? 'Enter portal to Shrine' : 'Enter portal') : '';
   const u = m.unown;
   const c = m.challenge;
   let status = '';
@@ -403,7 +410,7 @@ controls.onKey((code) => {
   else if (paused && (code === 'Escape' || code === 'KeyP')) setPaused(false);
   else if (paused && code === 'KeyQ') quit();
   else if (world.phase === 'levelup' && /^(Digit|Numpad)[123]$/.test(code)) pick(Number(code.slice(-1)) - 1);
-  else if (world.phase === 'blessing' && /^(Digit|Numpad)[123]$/.test(code)) pickBlessing(Number(code.slice(-1)) - 1);
+  else if (world.phase === 'blessing' && /^(Digit|Numpad)[1234]$/.test(code)) pickBlessing(Number(code.slice(-1)) - 1);
   else if (code === 'Tab' && started && !isRunOver(world) && (paused || world.phase === 'playing')) setPaused(!paused);
   else if (isRunOver(world) && (code === 'KeyR' || code === 'Enter')) restart();
   else if (world.phase === 'playing' && (code === 'Escape' || code === 'KeyP')) setPaused(true);
@@ -432,7 +439,8 @@ Object.defineProperty(window, '__arenaSlice', {
       paused,
       preset: shortPreset ? 'short' : 'normal',
       blessingChoices: world.blessingChoices ? [...world.blessingChoices] : null,
-      blessings: [...world.blessings],
+      blessings: world.blessings.map((b) => ({ ...b })),
+      victory: world.victory ? { ...world.victory } : null,
       unown: world.map.unown ? { x: world.map.unown.pos.x, z: world.map.unown.pos.z, state: world.map.unown.state, charge: world.map.unown.charge } : null,
       challenge: world.map.challenge ? { x: world.map.challenge.pos.x, z: world.map.challenge.pos.z, state: world.map.challenge.state, species: world.map.challenge.species, total: world.map.challenge.total, remaining: world.map.challenge.remaining } : null,
       challengeEnemies: world.enemies.filter((e) => e.challenge).map((e) => e.kind),
