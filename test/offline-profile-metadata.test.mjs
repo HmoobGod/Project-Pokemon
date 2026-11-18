@@ -14,6 +14,9 @@ test('fresh profile is app-private metadata, isolated from Standard and server a
   assert.match(src,/offline_solo_profile_metadata_v1/);
   assert.match(src,/org\.projectpokemon\.offlinesandbox\.profile\.metadata\.v1/);
   assert.match(src,/if \(preferences\.contains\(RECORD_KEY\)\)/);
+  assert.match(src,/existing\.size\(\) != 1/);
+  assert.match(src,/existing\.containsKey\(RECORD_KEY\)/);
+  assert.match(src,/Unknown offline profile slots; no reset/);
   assert.match(src,/parseStrict\(raw\)/);
   assert.match(src,/throw new IllegalStateException\("Unreadable offline profile; no reset"/);
   assert.match(src,/putString\(RECORD_KEY, serialized\)\.commit\(\)/);
@@ -47,6 +50,8 @@ test('fresh-profile metadata has Android runtime cases for persistence and fail-
   assert.match(src,/freshIdentityIsStableAndContainsNoProgression/);
   assert.match(src,/corruptOrForgedProfilesFailClosedWithoutStorageWrites/);
   assert.match(src,/persistedCorruptionNeverRewritesRawBytesInDisposableFixture/);
+  assert.match(src,/unexpectedPrivateKeysNeverCreateOrRewriteIdentity/);
+  assert.match(src,/offline_unknown_key_test_/);
   assert.match(src,/offline_solo_test_fixture_/);
   assert.match(src,/deleteSharedPreferences\(fixtureName\)/);
   assert.match(src,/assertEquals\("Reopening MUST NOT overwrite prior raw profile bytes"/);
