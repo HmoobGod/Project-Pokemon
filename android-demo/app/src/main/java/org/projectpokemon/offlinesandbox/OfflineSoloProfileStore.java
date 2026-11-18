@@ -43,6 +43,14 @@ final class OfflineSoloProfileStore {
         if (context == null) throw new IllegalArgumentException("Context required");
         final SharedPreferences preferences = context.getApplicationContext()
                 .getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE);
+        return openOrCreate(preferences);
+    }
+
+    // Package-private seam for real Android instrumentation against isolated,
+    // disposable preference fixtures. Production always uses the fixed private
+    // namespace above; tests must never mutate the actual metadata slot.
+    static synchronized Profile openOrCreate(SharedPreferences preferences) {
+        if (preferences == null) throw new IllegalArgumentException("Preferences required");
 
         // A present but invalid record MUST NOT be replaced by a fresh profile.
         if (preferences.contains(RECORD_KEY)) {
