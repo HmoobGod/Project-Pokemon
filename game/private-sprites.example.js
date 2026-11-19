@@ -10,6 +10,8 @@
 // directions:  1 (single row) or 8 (rows: Down, DownRight, Right, UpRight, Up, UpLeft, Left, DownLeft)
 // fps:         animation speed (0 = first frame only)
 // height:      on-screen height in world units (player is about 1.8)
+// portrait:    OPTIONAL face picture for the HUD (e.g. SpriteCollab portrait/<id>/Normal.png), same credit
+// name:        OPTIONAL name shown in the HUD (1-24 characters)
 window.ARENA_PRIVATE_SPRITES = {
   version: 1,
   sprites: {
@@ -21,6 +23,8 @@ window.ARENA_PRIVATE_SPRITES = {
       directions: 8,
       fps: 8,
       height: 1.8,
+      // portrait: 'player/Normal.png',
+      // name: '',
       credit: {
         title: '', // <-- e.g. the sprite's name/ID
         authors: [], // <-- every credited artist for this sheet, as listed by the source

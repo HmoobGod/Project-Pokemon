@@ -141,5 +141,17 @@ export function drawMap(ctx: CanvasRenderingContext2D, world: World, size: numbe
       ctx.stroke();
     }
   }
-  if (mode === 'mini') ctx.restore();
+  if (mode === 'mini') {
+    ctx.restore();
+    // compass letters (camera never rotates, so north = screen up)
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.font = `bold ${Math.round(size * 0.09)}px system-ui, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const e = size * 0.08;
+    ctx.fillText('N', size / 2, e);
+    ctx.fillText('S', size / 2, size - e);
+    ctx.fillText('W', e, size / 2);
+    ctx.fillText('E', size - e, size / 2);
+  }
 }

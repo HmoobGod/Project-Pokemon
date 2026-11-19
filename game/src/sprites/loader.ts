@@ -17,6 +17,8 @@ export interface LoadedSprite {
   width: number;
   height: number;
   image: unknown;
+  /** optional HUD portrait; absent if not listed or if it failed to load (the sprite itself still works) */
+  portrait?: LoadedImage;
 }
 
 export type SpriteStatus = 'none' | 'loaded' | 'partial' | 'failed';
@@ -82,7 +84,17 @@ export async function loadPrivateSprites(deps: LoaderDeps, dir = PRIVATE_SPRITE_
         if (!sheetFits(img.width, img.height, spec.frameWidth, spec.frameHeight, spec.frames, spec.directions)) {
           throw new Error(`image ${img.width}x${img.height} too small for ${spec.frames}x${spec.directions} frames of ${spec.frameWidth}x${spec.frameHeight}`);
         }
-        sprites.set(spec.role, { spec, width: img.width, height: img.height, image: img.image });
+        const loaded: LoadedSprite = { spec, width: img.width, height: img.height, image: img.image };
+        if (spec.portrait) {
+          try {
+            const pimg = await withTimeout(deps.loadImage(dir + spec.portrait), timeoutMs, spec.portrait);
+            if (pimg.width > 0 && pimg.height > 0) loaded.portrait = pimg;
+            else problems.push(`${spec.role}: portrait has no size — HUD uses the placeholder`);
+          } catch (e) {
+            problems.push(`${spec.role}: portrait ${(e as Error).message} — HUD uses the placeholder`);
+          }
+        }
+        sprites.set(spec.role, loaded);
       } catch (e) {
         problems.push(`${spec.role}: ${(e as Error).message} — using placeholder`);
       }

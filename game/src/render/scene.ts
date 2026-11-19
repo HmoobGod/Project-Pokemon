@@ -583,6 +583,14 @@ export class GameView {
     }
   }
 
+  /** Screen position (CSS px) of a world point, for DOM overlays such as the floating HP bar. */
+  projectToScreen(x: number, y: number, z: number): { x: number; y: number; visible: boolean } {
+    const v = new THREE.Vector3(x, y, z).project(this.camera);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    return { x: ((v.x + 1) / 2) * w, y: ((1 - v.y) / 2) * h, visible: v.z > -1 && v.z < 1 };
+  }
+
   /** Remove every dynamic object (used on restart). */
   clearDynamic(): void {
     for (const [id, v] of this.enemies) this.disposeEnemyView(v, id);

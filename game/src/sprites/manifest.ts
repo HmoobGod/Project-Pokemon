@@ -28,6 +28,10 @@ export interface SpriteSpec {
   /** on-screen height in world units */
   height: number;
   credit: SpriteCredit;
+  /** optional HUD portrait (e.g. a PMD portrait/<id>/Normal.png), same credit */
+  portrait?: string;
+  /** optional display name shown in the HUD (owner-supplied, local only) */
+  name?: string;
 }
 
 export interface ManifestResult {
@@ -126,7 +130,31 @@ export function parseSpriteManifest(raw: unknown): ManifestResult {
     }
     const credit = parseCredit(entry.credit, role, problems);
     if (!credit) continue;
-    specs.push({ role: role as SpriteRole, image: image!, frameWidth: frameWidth!, frameHeight: frameHeight!, frames: frames!, directions: directions!, fps: fps!, height: height!, credit });
+    let portrait: string | undefined;
+    if (entry.portrait !== undefined) {
+      const pp = str(entry.portrait, 200);
+      if (pp && isSafeRelativeImagePath(pp)) portrait = pp;
+      else problems.push(`${role}: invalid portrait path ignored`);
+    }
+    let name: string | undefined;
+    if (entry.name !== undefined) {
+      const nm = str(entry.name, 24);
+      if (nm) name = nm;
+      else problems.push(`${role}: invalid name ignored (1-24 characters)`);
+    }
+    specs.push({
+      role: role as SpriteRole,
+      image: image!,
+      frameWidth: frameWidth!,
+      frameHeight: frameHeight!,
+      frames: frames!,
+      directions: directions!,
+      fps: fps!,
+      height: height!,
+      credit,
+      ...(portrait ? { portrait } : {}),
+      ...(name ? { name } : {}),
+    });
   }
   return { specs, problems };
 }

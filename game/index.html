@@ -10,19 +10,48 @@
     <div id="app">
       <canvas id="view"></canvas>
       <div id="hud">
-        <div class="bars">
-          <div class="bar hp"><div id="hp-fill" class="fill"></div><span id="hp-text"></span></div>
-          <div class="bar xp"><div id="xp-fill" class="fill"></div><span id="xp-text"></span></div>
+        <!-- top-left: hero card (portrait + level ring = XP, name, blessing dots) -->
+        <div id="hero-card" class="hero-card">
+          <div class="portrait-wrap">
+            <svg class="lv-ring" viewBox="0 0 100 100" aria-hidden="true">
+              <circle class="ring-bg" cx="50" cy="50" r="45"></circle>
+              <circle id="xp-ring" class="ring-fg" cx="50" cy="50" r="45"></circle>
+            </svg>
+            <div class="portrait"><img id="hero-portrait" class="hidden" alt="" /><div id="hero-placeholder" class="hero-placeholder"></div></div>
+            <div class="lv-badge">Lv <b id="hero-level">1</b></div>
+          </div>
+          <div class="hero-info">
+            <div class="hero-name"><span id="hero-name">Hero</span></div>
+            <div id="hero-xp" class="hero-sub">0/5 XP</div>
+            <div id="blessing-dots" class="blessing-dots"><i></i><i></i><i></i></div>
+          </div>
         </div>
-        <div class="stats"><span id="time">0:00</span> · <span id="kills">0</span> KOs</div>
-        <button id="pause" class="small" type="button" aria-label="Pause">⏸</button>
-        <button id="fullscreen" class="small" type="button" aria-label="Full screen">⛶</button>
-        <button id="mute" class="small" type="button" aria-label="Toggle sound">🔊</button>
+        <!-- top-centre: zone panel + timer pill + counters -->
+        <div class="top-centre">
+          <div id="zone-panel" class="zone-panel">
+            <div class="zone-top"><span id="zone-name">Grove</span><span id="run-clock" class="run-clock">0:00.0</span></div>
+            <div class="zone-row"><span id="zone-medals" class="zone-medals"></span><span id="zone-label">Zone 1/3</span><span id="difficulty-tag" class="diff">NORMAL</span></div>
+          </div>
+          <div id="zone-clock" class="timer-pill">10:00</div>
+          <div class="counter-bar"><span class="counter">KOs <b id="kills">0</b></span><span class="counter">Time <b id="time">0:00</b></span></div>
+          <div id="objective-text" class="objective-text"></div>
+          <div id="preset-tag" class="preset hidden">SHORT TEST PRESET</div>
+          <div id="boss-bar" class="bar boss hidden"><div id="boss-fill" class="fill"></div><span id="boss-text">Guardian</span></div>
+          <div id="shrine-tag" class="preset proto hidden"></div>
+        </div>
+        <!-- top-right: system buttons (minimap sits left of them) -->
+        <div class="sys-buttons">
+          <button id="pause" class="small" type="button" aria-label="Pause">⏸</button>
+          <button id="fullscreen" class="small" type="button" aria-label="Full screen">⛶</button>
+          <button id="mute" class="small" type="button" aria-label="Toggle sound">🔊</button>
+        </div>
       </div>
-      <div id="objective" class="objective"><div id="zone-clock" class="zone-clock"></div><div id="objective-text"></div><div id="preset-tag" class="preset hidden">SHORT TEST PRESET</div>
-        <div id="boss-bar" class="bar boss hidden"><div id="boss-fill" class="fill"></div><span id="boss-text">Guardian</span></div>
-        <div id="shrine-tag" class="preset proto hidden">SHRINE FINALE = PROTOTYPE (rules unconfirmed)</div>
-      </div>
+      <!-- floating HP bar that follows the player -->
+      <div id="player-hp" class="player-hp"><div class="bar hp"><div id="hp-fill" class="fill"></div><span id="hp-text"></span></div></div>
+      <!-- event banners -->
+      <div id="toasts" class="toasts"></div>
+      <!-- bottom-centre: upgrade/attack slots with levels -->
+      <div id="upgrade-slots" class="upgrade-slots"></div>
       <button id="action-btn" class="portal-btn hidden" type="button">Action</button>
       <canvas id="minimap" class="minimap" width="120" height="120" aria-label="Minimap (tap for full map)"></canvas>
       <div id="interact-status" class="interact-status hidden"></div>

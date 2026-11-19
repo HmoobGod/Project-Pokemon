@@ -55,6 +55,7 @@ Result status: **NOT YET RUN** — only the owner can fill in results below.
 | 22 | The round **minimap** (top right) shows you and the altars; tapping it pauses and shows the **full map** | |
 | 23 | Standing in the blue **Unown** circle fills it (percentage shown); when full, 3 blessing cards appear with coloured rarities (Common grey / Rare blue / Epic purple / Legendary gold, "effect pending evidence"); tapping one resumes (no stat change yet) | |
 | 24 | On the orange **Challenge** altar, **Start Challenge** spawns a group of the same enemy; the counter goes up as you defeat them and the altar turns grey when won; no item is given | |
+| 25 | New HUD: hero card top-left (level ring fills with XP), zone panel + run clock top-centre, timer pill turns red in Final Swarm, green HP bar under your hero, upgrade squares with levels at the bottom, big round action button bottom-right, banners for big events | |
 
 Tip: a full normal run can take up to 30+ minutes. To check the zone/altar/portal/Shrine flow quickly, open `http://<that-address>:4173/?preset=short&debug=1` (30-second zone clocks, small boss HP, labelled SHORT TEST PRESET), then also play as far as you can on the normal rules.
 
@@ -66,7 +67,7 @@ Commit tested (git rev-parse --short HEAD):
 Phone model + Android version:
 Chrome version (chrome://version):
 Served with: npm run phone:preview / npm run phone
-Checks 1-24 (pass/fail + note for each fail):
+Checks 1-25 (pass/fail + note for each fail):
 Normal run reached: zone __ / Final Swarm seen? __ / guardians __ / Shrine? __ / Legendary victory + exit? __ (or short preset only?):
 Typical FPS / FPS with many enemies:
 Screen size shown in debug corner:

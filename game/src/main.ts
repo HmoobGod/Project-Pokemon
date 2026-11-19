@@ -5,6 +5,7 @@ import { SoundFx } from './audio.ts';
 import { availableAction, chooseBlessing, chooseUpgrade, createWorld, distanceToPortal, isRunOver, mapLabel, overtimeSeconds, performAction, quitRun, step, type World } from './sim/world.ts';
 import { RARITY_STYLE, SHORT_RULES, blessingIsEvidenced, xpToNext } from './sim/config.ts';
 import { drawMap } from './ui/minimap.ts';
+import { blessingDots, formatRunClock, timerPill, toastFor, upgradeSlots, zoneMedals } from './ui/hud.ts';
 import { UPGRADES } from './sim/upgrades.ts';
 import { browserLoaderDeps, loadPrivateSprites, type SpriteLoadResult } from './sprites/loader.ts';
 import { buildCredits, spriteStatusText } from './sprites/credits.ts';
@@ -61,8 +62,6 @@ let fps = 0;
 
 const hpFill = $('hp-fill');
 const hpText = $('hp-text');
-const xpFill = $('xp-fill');
-const xpText = $('xp-text');
 const timeEl = $('time');
 const killsEl = $('kills');
 const startOverlay = $('start');
@@ -85,6 +84,32 @@ function sizeCanvas(c: HTMLCanvasElement): CanvasRenderingContext2D | null {
 let miniCtx = sizeCanvas(minimapCanvas);
 let fullCtx: CanvasRenderingContext2D | null = null;
 const zoneClock = $('zone-clock');
+const xpRing = $('xp-ring');
+const heroLevel = $('hero-level');
+const heroXp = $('hero-xp');
+const runClock = $('run-clock');
+const zoneName = $('zone-name');
+const zoneLabel = $('zone-label');
+const zoneMedalsEl = $('zone-medals');
+const diffTag = $('difficulty-tag');
+const blessingDotsEl = $('blessing-dots');
+const slotsEl = $('upgrade-slots');
+const playerHp = $('player-hp');
+const toastsEl = $('toasts');
+diffTag.textContent = shortPreset ? 'SHORT TEST' : 'NORMAL';
+diffTag.classList.toggle('short', shortPreset);
+let lastSlotsKey = '';
+let lastMedalsKey = '';
+let lastDotsKey = '';
+
+function toast(text: string, tone: string): void {
+  const t = document.createElement('div');
+  t.className = `toast ${tone}`;
+  t.textContent = text;
+  toastsEl.prepend(t);
+  while (toastsEl.childElementCount > 3) toastsEl.lastElementChild?.remove();
+  setTimeout(() => t.remove(), 2600);
+}
 const objectiveText = $('objective-text');
 const bossBar = $('boss-bar');
 const bossFill = $('boss-fill');
@@ -212,6 +237,8 @@ function quit(): void {
 function handleEvents(): void {
   let shot = false;
   for (const ev of world.events) {
+    const tt = toastFor(ev, world);
+    if (tt) toast(tt.text, tt.tone);
     switch (ev.type) {
       case 'shot': shot = true; break;
       case 'enemyHit': sfx.play('hit'); break;
@@ -247,16 +274,53 @@ function updateHud(): void {
   hpFill.style.width = `${(100 * p.hp) / p.maxHp}%`;
   hpText.textContent = `${Math.ceil(p.hp)} / ${p.maxHp}`;
   const need = xpToNext(p.level);
-  xpFill.style.width = `${(100 * Math.min(p.xp, need)) / need}%`;
-  xpText.textContent = `Lv ${p.level}  ${p.xp}/${need} XP`;
+  const frac = Math.min(p.xp, need) / need;
+  xpRing.style.strokeDashoffset = String(282.7 * (1 - frac));
+  heroLevel.textContent = String(p.level);
+  heroXp.textContent = `${p.xp}/${need} XP`;
   timeEl.textContent = formatTime(world.time);
+  runClock.textContent = formatRunClock(world.time);
   killsEl.textContent = String(world.stats.kills);
+  zoneName.textContent = world.map.kind === 'shrine' ? world.map.name : world.map.name;
+  zoneLabel.textContent = world.map.kind === 'shrine' ? 'Shrine' : `Zone ${world.map.index + 1}/${world.map.zoneCount}`;
+  const medals = zoneMedals(world);
+  const mk = medals.join(',');
+  if (mk !== lastMedalsKey) {
+    lastMedalsKey = mk;
+    zoneMedalsEl.replaceChildren(...medals.map((st, i) => { const el = document.createElement('i'); el.className = `${st}${i === medals.length - 1 ? ' shrine' : ''}`; return el; }));
+  }
+  const dots = blessingDots(world);
+  const dk = dots.map((d) => d?.rarity ?? '-').join(',');
+  if (dk !== lastDotsKey) {
+    lastDotsKey = dk;
+    blessingDotsEl.replaceChildren(...dots.map((d) => { const el = document.createElement('i'); if (d) { el.style.background = d.color; el.style.borderColor = '#fff'; el.title = d.rarity; } return el; }));
+  }
+  const slots = upgradeSlots(world);
+  const sk = slots.map((x) => `${x.id}${x.level}${x.max}`).join('|');
+  if (sk !== lastSlotsKey) {
+    lastSlotsKey = sk;
+    slotsEl.replaceChildren(
+      ...slots.map((x) => {
+        const el = document.createElement('div');
+        el.className = `slot${x.max ? ' max' : ''}`;
+        el.dataset.upgrade = x.id;
+        const nm = document.createElement('span'); nm.className = 'nm'; nm.textContent = x.name;
+        const lv = document.createElement('span'); lv.className = 'lvl'; lv.textContent = x.max ? 'MAX' : String(x.level);
+        el.append(nm, document.createTextNode(x.short), lv);
+        return el;
+      }),
+    );
+  }
+  const scr = view.projectToScreen(p.pos.x, 0, p.pos.z);
+  playerHp.style.left = `${scr.x}px`;
+  playerHp.style.top = `${scr.y + 14}px`;
+  playerHp.style.display = started && scr.visible ? 'block' : 'none';
   const m = world.map;
   const boss = m.bossId !== null ? world.enemies.find((e) => e.id === m.bossId) : undefined;
+  const pill = timerPill(world);
+  zoneClock.textContent = pill.text;
+  zoneClock.classList.toggle('swarm', pill.swarm);
   if (m.kind === 'zone') {
-    const left = m.zoneSeconds - m.zoneTime;
-    zoneClock.textContent = m.finalSwarm ? `Zone ${m.index + 1}/${m.zoneCount} · FINAL SWARM +${formatTime(overtimeSeconds(world))}` : `Zone ${m.index + 1}/${m.zoneCount} · ${m.name} · ${formatTime(Math.max(0, Math.ceil(left)))}`;
-    zoneClock.classList.toggle('swarm', m.finalSwarm);
     const toShrine = m.index === m.zoneCount - 1;
     objectiveText.textContent =
       m.state === 'explore'
@@ -265,8 +329,6 @@ function updateHud(): void {
           ? 'Defeat the Guardian!'
           : `Portal open — stand in it and enter${toShrine ? ' (leads to the Shrine)' : ` (to Zone ${m.index + 2})`}`;
   } else {
-    zoneClock.textContent = 'Shrine';
-    zoneClock.classList.remove('swarm');
     objectiveText.textContent =
       m.state === 'intro' ? 'The Legendary approaches…' : m.state === 'cleared' ? 'VICTORY! Run complete — exit the stage through the portal' : 'Defeat the Legendary (defeating it wins the run)';
   }
@@ -360,6 +422,14 @@ async function initSprites(): Promise<void> {
   } catch (e) {
     spriteResult = { status: 'failed', sprites: new Map(), problems: [String(e)] };
   }
+  const hero = spriteResult.sprites.get('player');
+  const portraitEl = $('hero-portrait') as HTMLImageElement;
+  if (hero?.portrait && hero.portrait.image instanceof HTMLImageElement) {
+    portraitEl.src = hero.portrait.image.src;
+    portraitEl.classList.remove('hidden');
+    $('hero-placeholder').classList.add('hidden');
+  }
+  if (hero?.spec.name) $('hero-name').textContent = hero.spec.name;
   try {
     if (spriteResult.sprites.size > 0) view.setSprites(spriteResult.sprites);
   } catch (e) {
